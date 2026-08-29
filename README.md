@@ -92,6 +92,28 @@ These are local/dev seed data only — never reuse them for a real deployment.
 5. Deploy. On each push to the connected branch, Railway rebuilds and runs
    migrations automatically before starting the app.
 
+### Vercel
+
+The app is a standard Next.js + Prisma project, so Vercel's zero-config
+Next.js detection builds and runs it without a `vercel.json` — no build
+command override is needed since `npm run build` already runs
+`prisma generate` before `next build`, and `postinstall` also runs
+`prisma generate` so the client is generated in Vercel's own build
+environment (matching its runtime, so no `binaryTargets` override is needed).
+
+1. Import the repo into a new Vercel project.
+2. Set **Environment Variables** on the project: `DATABASE_URL` and
+   `AUTH_SECRET` (`openssl rand -base64 32`).
+3. Migrations aren't run automatically by Vercel the way `railway.json` runs
+   them on Railway — run `npx prisma migrate deploy` yourself (locally
+   against the same `DATABASE_URL`, or from a CI step) before/after each
+   deploy that adds a migration.
+4. **Connection pooling**: Vercel functions are short-lived and can open many
+   concurrent Postgres connections under load, which a plain Postgres
+   instance's connection limit won't absorb well. Point `DATABASE_URL` at a
+   pooled connection string (e.g. your provider's PgBouncer/pooler endpoint,
+   or Neon/Supabase's pooled URL) rather than a direct one.
+
 ### GitHub
 
 - Push/PR to `main` triggers `.github/workflows/ci.yml`, which spins up a
