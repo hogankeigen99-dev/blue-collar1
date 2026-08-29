@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
 import { verifyApiKey } from "@/lib/api-key";
 
 export async function GET(request: Request) {
@@ -8,6 +8,7 @@ export async function GET(request: Request) {
   const key = await verifyApiKey(token);
   if (!key) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const prisma = scopedPrisma(key.companyId);
   const jobs = await prisma.job.findMany({
     orderBy: { createdAt: "desc" },
     select: {

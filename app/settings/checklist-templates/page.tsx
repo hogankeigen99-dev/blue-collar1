@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
 import { createChecklistTemplateItem, deleteChecklistTemplateItem } from "@/lib/checklist-actions";
 import { requirePageRole } from "@/lib/session";
 import { PROJECT_STAGE_LABEL } from "@/lib/format";
@@ -8,7 +8,8 @@ export const dynamic = "force-dynamic";
 const STAGES = ["PRECON", "MOBILIZATION", "ACTIVE", "PUNCH_LIST", "CLOSEOUT", "COMPLETE"] as const;
 
 export default async function ChecklistTemplatesPage() {
-  await requirePageRole("ADMIN");
+  const session = await requirePageRole("ADMIN");
+  const prisma = scopedPrisma(session.companyId);
 
   const items = await prisma.checklistTemplateItem.findMany({ orderBy: [{ stage: "asc" }, { sortOrder: "asc" }] });
   const byStage = Object.fromEntries(STAGES.map((s) => [s, items.filter((i) => i.stage === s)]));

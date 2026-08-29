@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
+import { requireSession } from "@/lib/session";
 import { createChangeOrder } from "@/lib/change-order-actions";
 
 export default async function NewChangeOrderPage({
@@ -10,14 +11,19 @@ export default async function NewChangeOrderPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ sourceDailyReportId?: string }>;
 }) {
+  const session = await requireSession();
+  const prisma = scopedPrisma(session.companyId);
   const { id } = await params;
   const { sourceDailyReportId } = await searchParams;
-  const [job, workers, sourceReport] = await Promise.all([
-    prisma.job.findUnique({ where: { id } }),
+  const [job, workers, sourceReportRaw] = await Promise.all([
+    prisma.job.findFirst({ where: { id } }),
     prisma.worker.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
     sourceDailyReportId ? prisma.dailyReport.findUnique({ where: { id: sourceDailyReportId } }) : null,
   ]);
   if (!job) notFound();
+  // DailyReport isn't a tenant model — only trust it as a prefill source if
+  // it actually belongs to this job (and therefore this company).
+  const sourceReport = sourceReportRaw && sourceReportRaw.jobId === job.id ? sourceReportRaw : null;
 
   return (
     <div className="max-w-xl space-y-6">

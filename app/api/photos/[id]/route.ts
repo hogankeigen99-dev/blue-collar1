@@ -7,8 +7,15 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   if (!session) return new NextResponse("Unauthorized", { status: 401 });
 
   const { id } = await params;
-  const photo = await prisma.dailyReportPhoto.findUnique({ where: { id } });
-  if (!photo) return new NextResponse("Not found", { status: 404 });
+  // DailyReportPhoto isn't a tenant model — it's reached directly by id
+  // here, so the job (via its daily report) it belongs to must be checked by hand.
+  const photo = await prisma.dailyReportPhoto.findUnique({
+    where: { id },
+    include: { dailyReport: { select: { job: { select: { companyId: true } } } } },
+  });
+  if (!photo || photo.dailyReport.job.companyId !== session.companyId) {
+    return new NextResponse("Not found", { status: 404 });
+  }
 
   return new NextResponse(new Uint8Array(photo.data), {
     headers: {

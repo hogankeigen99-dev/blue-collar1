@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { prisma } from "@/lib/prisma";
-import { getSession } from "@/lib/session";
+import { scopedPrisma } from "@/lib/tenant";
+import { requireSession } from "@/lib/session";
 import { canManageJobs } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -13,13 +13,12 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export default async function JobsPage() {
-  const [jobs, session] = await Promise.all([
-    prisma.job.findMany({
-      orderBy: { createdAt: "desc" },
-      include: { customer: true, assignments: { include: { worker: true } } },
-    }),
-    getSession(),
-  ]);
+  const session = await requireSession();
+  const prisma = scopedPrisma(session.companyId);
+  const jobs = await prisma.job.findMany({
+    orderBy: { createdAt: "desc" },
+    include: { customer: true, assignments: { include: { worker: true } } },
+  });
 
   return (
     <div className="space-y-6">

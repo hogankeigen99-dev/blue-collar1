@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
-import { addJobCostCode } from "@/lib/productivity-actions";
+import { scopedPrisma } from "@/lib/tenant";
+import { addJobCostCode } from "@/lib/materials-actions";
 import { requirePageRole } from "@/lib/session";
 
 export default async function NewJobCostCodePage({
@@ -9,10 +9,11 @@ export default async function NewJobCostCodePage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  await requirePageRole("ADMIN", "PM");
+  const session = await requirePageRole("ADMIN", "PM");
+  const prisma = scopedPrisma(session.companyId);
   const { id } = await params;
   const [job, costCodes] = await Promise.all([
-    prisma.job.findUnique({ where: { id } }),
+    prisma.job.findFirst({ where: { id } }),
     prisma.costCode.findMany({ orderBy: { code: "asc" } }),
   ]);
 

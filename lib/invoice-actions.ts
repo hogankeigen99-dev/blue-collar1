@@ -1,6 +1,6 @@
 "use server";
 
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/session";
@@ -20,7 +20,8 @@ function num(formData: FormData, key: string): number | undefined {
 }
 
 export async function createInvoice(formData: FormData) {
-  await requireRole("ADMIN", "PM");
+  const session = await requireRole("ADMIN", "PM");
+  const prisma = scopedPrisma(session.companyId);
   const jobId = str(formData, "jobId");
   const invoiceNumber = str(formData, "invoiceNumber");
   const amount = num(formData, "amount");
@@ -28,6 +29,10 @@ export async function createInvoice(formData: FormData) {
   if (!jobId || !invoiceNumber || amount === undefined || !date) {
     throw new Error("Job, invoice number, amount, and date are required");
   }
+
+  // Invoice is a child of Job (no companyId of its own) — verify the job
+  // belongs to this company before creating against it.
+  await prisma.job.findFirstOrThrow({ where: { id: jobId } });
 
   await prisma.invoice.create({
     data: { jobId, invoiceNumber, amount, date: new Date(date), notes: str(formData, "notes") },
@@ -40,10 +45,17 @@ export async function createInvoice(formData: FormData) {
 
 export async function updateInvoiceStatus(formData: FormData) {
   const session = await requireRole("ADMIN", "PM");
+  const prisma = scopedPrisma(session.companyId);
   const id = str(formData, "id");
   const jobId = str(formData, "jobId");
   const status = str(formData, "status");
   if (!id || !jobId || !status) throw new Error("Invoice, job, and status are required");
+
+  // Invoice isn't a tenant model — verify the job belongs to this company,
+  // then that the invoice belongs to that job, before updating it.
+  await prisma.job.findFirstOrThrow({ where: { id: jobId } });
+  const existing = await prisma.invoice.findFirst({ where: { id, jobId } });
+  if (!existing) throw new Error("Invoice not found");
 
   const inv = await prisma.invoice.update({ where: { id }, data: { status: status as never } });
 
@@ -55,7 +67,7 @@ export async function updateInvoiceStatus(formData: FormData) {
       jobId,
       detail: `${inv.invoiceNumber} — ${inv.amount}`,
     });
-    await dispatchWebhook("INVOICE_SENT", { jobId, invoiceId: id, invoiceNumber: inv.invoiceNumber, amount: inv.amount });
+    await dispatchWebhook(session.companyId, "INVOICE_SENT", { jobId, invoiceId: id, invoiceNumber: inv.invoiceNumber, amount: inv.amount });
   }
 
   revalidatePath(`/jobs/${jobId}/invoices`);

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
 import { updateChangeOrder } from "@/lib/change-order-actions";
 import { requireSession } from "@/lib/session";
 import { canManageEstimates } from "@/lib/auth";
@@ -24,9 +24,10 @@ export default async function ChangeOrdersPage({
   params: Promise<{ id: string }>;
 }) {
   const session = await requireSession();
+  const prisma = scopedPrisma(session.companyId);
   const { id } = await params;
   const [job, changeOrders] = await Promise.all([
-    prisma.job.findUnique({ where: { id } }),
+    prisma.job.findFirst({ where: { id } }),
     prisma.changeOrder.findMany({
       where: { jobId: id },
       orderBy: { createdAt: "desc" },

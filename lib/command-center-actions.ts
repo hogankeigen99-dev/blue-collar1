@@ -1,6 +1,6 @@
 "use server";
 
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/session";
@@ -22,6 +22,7 @@ function num(formData: FormData, key: string): number | undefined {
 
 export async function updateJobCommandCenter(formData: FormData) {
   const session = await requireRole("ADMIN", "PM");
+  const prisma = scopedPrisma(session.companyId);
   const jobId = str(formData, "jobId");
   if (!jobId) throw new Error("Job is required");
 
@@ -29,7 +30,7 @@ export async function updateJobCommandCenter(formData: FormData) {
   const targetEnd = str(formData, "targetEndDate");
   const newStage = str(formData, "stage");
 
-  const before = await prisma.job.findUniqueOrThrow({ where: { id: jobId }, select: { stage: true } });
+  const before = await prisma.job.findFirstOrThrow({ where: { id: jobId }, select: { stage: true } });
 
   await prisma.job.update({
     where: { id: jobId },
@@ -55,7 +56,7 @@ export async function updateJobCommandCenter(formData: FormData) {
       jobId,
       detail: `${before.stage} -> ${newStage}`,
     });
-    await dispatchWebhook("JOB_STAGE_CHANGED", { jobId, from: before.stage, to: newStage });
+    await dispatchWebhook(session.companyId, "JOB_STAGE_CHANGED", { jobId, from: before.stage, to: newStage });
   }
 
   revalidatePath(`/jobs/${jobId}`);
@@ -63,13 +64,19 @@ export async function updateJobCommandCenter(formData: FormData) {
 }
 
 export async function setJobBudget(formData: FormData) {
-  await requireRole("ADMIN", "PM");
+  const session = await requireRole("ADMIN", "PM");
+  const prisma = scopedPrisma(session.companyId);
   const jobId = str(formData, "jobId");
   const category = str(formData, "category");
   const estimatedAmount = num(formData, "estimatedAmount");
   if (!jobId || !category || estimatedAmount === undefined) {
     throw new Error("Job, category, and estimated amount are required");
   }
+
+  // JobBudget is a child of Job (no companyId of its own) and this is an
+  // upsert, which scopedPrisma() deliberately leaves unscoped — so the job
+  // must be verified to belong to this company before writing against it.
+  await prisma.job.findFirstOrThrow({ where: { id: jobId } });
 
   await prisma.jobBudget.upsert({
     where: { jobId_category: { jobId, category: category as never } },

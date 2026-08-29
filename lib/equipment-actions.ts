@@ -1,6 +1,6 @@
 "use server";
 
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/session";
@@ -18,13 +18,15 @@ function num(formData: FormData, key: string): number | undefined {
 }
 
 export async function createEquipment(formData: FormData) {
-  await requireRole("ADMIN", "PM");
+  const session = await requireRole("ADMIN", "PM");
+  const prisma = scopedPrisma(session.companyId);
   const name = str(formData, "name");
   const ownership = str(formData, "ownership");
   if (!name || !ownership) throw new Error("Name and ownership are required");
 
   await prisma.equipment.create({
     data: {
+      companyId: session.companyId,
       name,
       type: str(formData, "type"),
       ownership: ownership as never,
@@ -40,7 +42,8 @@ export async function createEquipment(formData: FormData) {
  * same equipment are still allowed (a dispatcher may need to override) but are flagged
  * back to the user via a query-string warning rather than silently allowed. */
 export async function assignEquipment(formData: FormData) {
-  await requireRole("ADMIN", "PM");
+  const session = await requireRole("ADMIN", "PM");
+  const prisma = scopedPrisma(session.companyId);
   const equipmentId = str(formData, "equipmentId");
   const jobId = str(formData, "jobId");
   const startRaw = str(formData, "startDate");
@@ -48,6 +51,11 @@ export async function assignEquipment(formData: FormData) {
   if (!equipmentId || !jobId || !startRaw || !endRaw) {
     throw new Error("Equipment, job, start date, and end date are required");
   }
+
+  // EquipmentAssignment is a child of both Equipment and Job — verify both
+  // belong to this company before creating against them.
+  await prisma.equipment.findFirstOrThrow({ where: { id: equipmentId } });
+  await prisma.job.findFirstOrThrow({ where: { id: jobId } });
 
   const startDate = new Date(startRaw);
   const endDate = new Date(endRaw);
@@ -76,9 +84,17 @@ export async function assignEquipment(formData: FormData) {
 }
 
 export async function updateEquipmentAssignment(formData: FormData) {
-  await requireRole("ADMIN", "PM");
+  const session = await requireRole("ADMIN", "PM");
+  const prisma = scopedPrisma(session.companyId);
   const id = str(formData, "id");
   if (!id) throw new Error("Assignment is required");
+
+  // EquipmentAssignment isn't a tenant model — verify it belongs to
+  // equipment in this company before updating it.
+  const existing = await prisma.equipmentAssignment.findFirst({
+    where: { id, equipment: { companyId: session.companyId } },
+  });
+  if (!existing) throw new Error("Assignment not found");
 
   const pickupRaw = str(formData, "actualPickupDate");
   const returnRaw = str(formData, "actualReturnDate");

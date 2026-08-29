@@ -10,16 +10,26 @@ export async function login(formData: FormData) {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
 
+  // Global lookup by email — the one place in the app that legitimately runs
+  // before we know which company the caller belongs to, so it uses the raw
+  // (unscoped) client rather than scopedPrisma().
   const user = email
     ? await prisma.user.findUnique({ where: { email } })
     : null;
 
-  if (!user || !user.active || !verifyPassword(password, user.passwordHash)) {
+  if (
+    !user ||
+    !user.active ||
+    user.authProvider !== "PASSWORD" ||
+    !user.passwordHash ||
+    !verifyPassword(password, user.passwordHash)
+  ) {
     redirect("/login?error=1");
   }
 
   const token = await signSession({
     userId: user.id,
+    companyId: user.companyId,
     name: user.name,
     email: user.email,
     role: user.role,

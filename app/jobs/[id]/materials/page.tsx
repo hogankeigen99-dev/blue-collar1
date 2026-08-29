@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
-import { updateMaterialRequest } from "@/lib/materials-actions";
+import { scopedPrisma } from "@/lib/tenant";
+import { updateMaterialRequest } from "@/lib/productivity-actions";
 import { requireSession } from "@/lib/session";
 import { canManageEstimates } from "@/lib/auth";
 import { formatMoney, formatDate } from "@/lib/format";
@@ -29,9 +29,10 @@ export default async function MaterialsPage({
   params: Promise<{ id: string }>;
 }) {
   const session = await requireSession();
+  const prisma = scopedPrisma(session.companyId);
   const { id } = await params;
   const [job, requests] = await Promise.all([
-    prisma.job.findUnique({ where: { id } }),
+    prisma.job.findFirst({ where: { id } }),
     prisma.materialRequest.findMany({
       where: { jobId: id },
       orderBy: { createdAt: "desc" },

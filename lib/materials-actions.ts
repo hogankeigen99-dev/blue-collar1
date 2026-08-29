@@ -1,9 +1,10 @@
 "use server";
 
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { requireSession, requireRole } from "@/lib/session";
+import { requireRole, requireSession } from "@/lib/session";
+import { parseCsv } from "@/lib/csv";
 
 function str(formData: FormData, key: string): string | undefined {
   const v = formData.get(key);
@@ -17,55 +18,142 @@ function num(formData: FormData, key: string): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
-/** Field request — any signed-in role can flag a material need. */
-export async function createMaterialRequest(formData: FormData) {
-  await requireSession();
-  const jobId = str(formData, "jobId");
+export async function createCostCode(formData: FormData) {
+  const session = await requireRole("ADMIN", "PM");
+  const prisma = scopedPrisma(session.companyId);
+  const code = str(formData, "code");
   const description = str(formData, "description");
-  const quantity = num(formData, "quantity");
   const unit = str(formData, "unit");
-  if (!jobId || !description || quantity === undefined || !unit) {
-    throw new Error("Job, description, quantity, and unit are required");
+  if (!code || !description || !unit) {
+    throw new Error("Code, description, and unit are required");
   }
 
-  await prisma.materialRequest.create({
-    data: {
-      jobId,
-      description,
-      quantity,
-      unit,
-      requestedById: str(formData, "requestedById"),
-    },
+  await prisma.costCode.create({
+    data: { companyId: session.companyId, code, description, unit: unit as never },
   });
 
-  revalidatePath(`/jobs/${jobId}/materials`);
-  redirect(`/jobs/${jobId}/materials`);
+  revalidatePath("/cost-codes");
+  redirect("/cost-codes");
 }
 
-/** PM approval → vendor/PO → ordered → received. PM/ADMIN only — this is the procurement side of the workflow. */
-export async function updateMaterialRequest(formData: FormData) {
-  await requireRole("ADMIN", "PM");
-  const id = str(formData, "id");
+export async function addJobCostCode(formData: FormData) {
+  const session = await requireRole("ADMIN", "PM");
+  const prisma = scopedPrisma(session.companyId);
   const jobId = str(formData, "jobId");
-  const status = str(formData, "status");
-  if (!id || !jobId || !status) throw new Error("Request, job, and status are required");
+  const costCodeId = str(formData, "costCodeId");
+  const estimatedQty = num(formData, "estimatedQty");
+  const estimatedHours = num(formData, "estimatedHours");
+  if (!jobId || !costCodeId || !estimatedQty || !estimatedHours) {
+    throw new Error("Job, cost code, estimated quantity, and estimated hours are required");
+  }
 
-  const receivedDateRaw = str(formData, "receivedDate");
-  const expectedDeliveryRaw = str(formData, "expectedDeliveryDate");
+  // JobCostCode is a child of both Job and CostCode — verify both belong to
+  // this company before creating against them.
+  await prisma.job.findFirstOrThrow({ where: { id: jobId } });
+  await prisma.costCode.findFirstOrThrow({ where: { id: costCodeId } });
 
-  await prisma.materialRequest.update({
-    where: { id },
+  await prisma.jobCostCode.create({
+    data: { jobId, costCodeId, estimatedQty, estimatedHours },
+  });
+
+  revalidatePath(`/jobs/${jobId}`);
+  redirect(`/jobs/${jobId}`);
+}
+
+/**
+ * Bulk-loads a job's estimate lines from a CSV (an exported bid/estimate)
+ * instead of one budget line at a time. Columns: code,estimatedQty,estimatedHours
+ * — an optional header row is detected and skipped. Each code must already
+ * exist in the cost code library; rows with an unknown code or non-positive
+ * numbers are skipped and reported back on the job page.
+ */
+export async function importJobCostCodesCsv(formData: FormData) {
+  const session = await requireRole("ADMIN", "PM");
+  const prisma = scopedPrisma(session.companyId);
+  const jobId = str(formData, "jobId");
+  if (!jobId) throw new Error("Job is required");
+
+  // JobCostCode.upsert is deliberately left unscoped by scopedPrisma() —
+  // verify the job belongs to this company before writing against it.
+  await prisma.job.findFirstOrThrow({ where: { id: jobId } });
+
+  const file = formData.get("csvFile");
+  const pasted = str(formData, "csvText");
+  let text = "";
+  if (file instanceof File && file.size > 0) {
+    text = await file.text();
+  } else if (pasted) {
+    text = pasted;
+  } else {
+    throw new Error("Provide a CSV file or paste CSV text");
+  }
+
+  const rows = parseCsv(text);
+  const looksLikeHeader = rows[0]?.[0]?.trim().toLowerCase() === "code";
+  const dataRows = looksLikeHeader ? rows.slice(1) : rows;
+
+  const costCodes = await prisma.costCode.findMany();
+  const byCode = new Map(costCodes.map((c) => [c.code.toLowerCase(), c]));
+
+  let imported = 0;
+  const skipped: string[] = [];
+
+  for (const [codeRaw, qtyRaw, hoursRaw] of dataRows) {
+    const code = (codeRaw ?? "").trim();
+    const qty = Number(qtyRaw);
+    const hours = Number(hoursRaw);
+    const costCode = code ? byCode.get(code.toLowerCase()) : undefined;
+
+    if (!costCode || !Number.isFinite(qty) || qty <= 0 || !Number.isFinite(hours) || hours <= 0) {
+      skipped.push(code || "(blank)");
+      continue;
+    }
+
+    await prisma.jobCostCode.upsert({
+      where: { jobId_costCodeId: { jobId, costCodeId: costCode.id } },
+      update: { estimatedQty: qty, estimatedHours: hours },
+      create: { jobId, costCodeId: costCode.id, estimatedQty: qty, estimatedHours: hours },
+    });
+    imported++;
+  }
+
+  revalidatePath(`/jobs/${jobId}`);
+  const params = new URLSearchParams({ imported: String(imported) });
+  if (skipped.length > 0) params.set("skipped", skipped.join(", "));
+  redirect(`/jobs/${jobId}?${params.toString()}`);
+}
+
+export async function logProduction(formData: FormData) {
+  const session = await requireSession(); // foreman's core workflow — any signed-in role
+  const prisma = scopedPrisma(session.companyId);
+  const jobId = str(formData, "jobId");
+  const jobCostCodeId = str(formData, "jobCostCodeId");
+  const dateRaw = str(formData, "date");
+  const hours = num(formData, "hours");
+  const quantity = num(formData, "quantity");
+  const crewSize = num(formData, "crewSize");
+  if (!jobId || !jobCostCodeId || !dateRaw || hours === undefined || quantity === undefined) {
+    throw new Error("Cost code, date, hours, and quantity are required");
+  }
+
+  // ProductionEntry is a child of JobCostCode/Job — verify the job belongs
+  // to this company and the cost code line belongs to that job.
+  await prisma.job.findFirstOrThrow({ where: { id: jobId } });
+  const jcc = await prisma.jobCostCode.findFirst({ where: { id: jobCostCodeId, jobId } });
+  if (!jcc) throw new Error("Job cost code not found");
+
+  await prisma.productionEntry.create({
     data: {
-      status: status as never,
-      vendor: str(formData, "vendor"),
-      poNumber: str(formData, "poNumber"),
-      unitCost: num(formData, "unitCost"),
-      totalCost: num(formData, "totalCost"),
-      expectedDeliveryDate: expectedDeliveryRaw ? new Date(expectedDeliveryRaw) : undefined,
-      receivedDate: receivedDateRaw ? new Date(receivedDateRaw) : undefined,
+      jobCostCodeId,
+      date: new Date(dateRaw),
+      hours,
+      quantity,
+      crewSize: crewSize !== undefined ? Math.round(crewSize) : undefined,
+      notes: str(formData, "notes"),
+      enteredById: str(formData, "enteredById"),
     },
   });
 
-  revalidatePath(`/jobs/${jobId}/materials`);
-  redirect(`/jobs/${jobId}/materials`);
+  revalidatePath(`/jobs/${jobId}`);
+  redirect(`/jobs/${jobId}`);
 }

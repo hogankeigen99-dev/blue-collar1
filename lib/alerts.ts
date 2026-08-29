@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
 import { computeProgress } from "@/lib/productivity";
 import { getJobCosting } from "@/lib/job-costing";
 import { getBillingReadiness } from "@/lib/billing";
@@ -35,7 +35,8 @@ export const ALERT_TYPE_LABEL: Record<AlertType, string> = {
 const DAY_MS = 86_400_000;
 const MARGIN_WARNING_PCT = 0.1;
 
-export async function getAlerts(): Promise<Alert[]> {
+export async function getAlerts(companyId: string): Promise<Alert[]> {
+  const prisma = scopedPrisma(companyId);
   const jobs = await prisma.job.findMany({
     where: { status: { not: "CANCELLED" } },
     include: {
@@ -171,7 +172,7 @@ export async function getAlerts(): Promise<Alert[]> {
 
     // Billing blocker — jobs at closeout that aren't actually ready to invoice.
     if (job.stage === "CLOSEOUT" || job.stage === "COMPLETE") {
-      const readiness = await getBillingReadiness(job.id);
+      const readiness = await getBillingReadiness(companyId, job.id);
       if (!readiness.ready) {
         const failing = readiness.checks.filter((c) => !c.ok).map((c) => c.label);
         alerts.push({
@@ -186,7 +187,7 @@ export async function getAlerts(): Promise<Alert[]> {
 
     // Margin risk — trending below a healthy margin on jobs with a contract value.
     if (job.contractValue && job.contractValue > 0) {
-      const costing = await getJobCosting(job.id);
+      const costing = await getJobCosting(companyId, job.id);
       if (costing.projectedMarginPct !== null && costing.projectedMarginPct < MARGIN_WARNING_PCT) {
         alerts.push({
           type: "MARGIN_RISK",

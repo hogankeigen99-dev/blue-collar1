@@ -1,9 +1,10 @@
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
 import { createJob } from "@/lib/actions";
 import { requirePageRole } from "@/lib/session";
 
 export default async function NewJobPage() {
-  await requirePageRole("ADMIN", "PM");
+  const session = await requirePageRole("ADMIN", "PM");
+  const prisma = scopedPrisma(session.companyId);
   const [customers, workers] = await Promise.all([
     prisma.customer.findMany({ orderBy: { name: "asc" } }),
     prisma.worker.findMany({ where: { active: true }, orderBy: { name: "asc" } }),

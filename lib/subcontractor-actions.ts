@@ -1,6 +1,6 @@
 "use server";
 
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/session";
@@ -18,13 +18,18 @@ function num(formData: FormData, key: string): number | undefined {
 }
 
 export async function createSubcontractorCost(formData: FormData) {
-  await requireRole("ADMIN", "PM");
+  const session = await requireRole("ADMIN", "PM");
+  const prisma = scopedPrisma(session.companyId);
   const jobId = str(formData, "jobId");
   const vendor = str(formData, "vendor");
   const committedAmount = num(formData, "committedAmount");
   if (!jobId || !vendor || committedAmount === undefined) {
     throw new Error("Job, vendor, and committed amount are required");
   }
+
+  // SubcontractorCost is a child of Job (no companyId of its own) — verify
+  // the job belongs to this company before creating against it.
+  await prisma.job.findFirstOrThrow({ where: { id: jobId } });
 
   await prisma.subcontractorCost.create({
     data: { jobId, vendor, committedAmount, description: str(formData, "description") },
@@ -35,11 +40,18 @@ export async function createSubcontractorCost(formData: FormData) {
 }
 
 export async function updateSubcontractorCost(formData: FormData) {
-  await requireRole("ADMIN", "PM");
+  const session = await requireRole("ADMIN", "PM");
+  const prisma = scopedPrisma(session.companyId);
   const id = str(formData, "id");
   const jobId = str(formData, "jobId");
   const status = str(formData, "status");
   if (!id || !jobId || !status) throw new Error("Cost, job, and status are required");
+
+  // SubcontractorCost isn't a tenant model — verify the job belongs to this
+  // company, then that the cost belongs to that job, before updating it.
+  await prisma.job.findFirstOrThrow({ where: { id: jobId } });
+  const existing = await prisma.subcontractorCost.findFirst({ where: { id, jobId } });
+  if (!existing) throw new Error("Subcontractor cost not found");
 
   await prisma.subcontractorCost.update({
     where: { id },

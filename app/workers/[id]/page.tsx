@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
 import { markWorkerUnavailable, removeWorkerUnavailability } from "@/lib/availability-actions";
-import { getSession } from "@/lib/session";
+import { requireSession } from "@/lib/session";
 import { canManageJobs } from "@/lib/auth";
 import { formatMoney, formatDate } from "@/lib/format";
 
@@ -17,11 +17,12 @@ export default async function WorkerDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const session = await requireSession();
+  const prisma = scopedPrisma(session.companyId);
   const { id } = await params;
   const now = new Date();
-  const [worker, session, upcomingSchedule, unavailability] = await Promise.all([
-    prisma.worker.findUnique({ where: { id } }),
-    getSession(),
+  const [worker, upcomingSchedule, unavailability] = await Promise.all([
+    prisma.worker.findFirst({ where: { id } }),
     prisma.scheduleAssignment.findMany({
       where: { workerId: id, date: { gte: now } },
       orderBy: { date: "asc" },
@@ -35,7 +36,7 @@ export default async function WorkerDetailPage({
   ]);
   if (!worker) notFound();
 
-  const canEdit = session ? canManageJobs(session.role) : false;
+  const canEdit = canManageJobs(session.role);
 
   return (
     <div className="max-w-2xl space-y-6">

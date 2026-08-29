@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
 
 export type ProductivityStatus = "not_started" | "on_pace" | "watch" | "over_budget";
 
@@ -66,7 +66,8 @@ export type HistoricalProductivity = {
 };
 
 /** Aggregates actual hrs/unit for every cost code across every job that has logged production against it — the historical estimating asset. */
-export async function getHistoricalProductivity(): Promise<HistoricalProductivity[]> {
+export async function getHistoricalProductivity(companyId: string): Promise<HistoricalProductivity[]> {
+  const prisma = scopedPrisma(companyId);
   const costCodes = await prisma.costCode.findMany({
     orderBy: { code: "asc" },
     include: {

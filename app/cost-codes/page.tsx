@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { getHistoricalProductivity } from "@/lib/productivity";
-import { getSession } from "@/lib/session";
+import { requireSession } from "@/lib/session";
 import { canManageEstimates } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export default async function CostCodesPage() {
-  const [costCodes, session] = await Promise.all([getHistoricalProductivity(), getSession()]);
+  const session = await requireSession();
+  const costCodes = await getHistoricalProductivity(session.companyId);
 
   return (
     <div className="space-y-6">

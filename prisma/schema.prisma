@@ -85,8 +85,62 @@ enum InvoiceStatus {
   PAID
 }
 
+// --- Multi-tenancy ---
+//
+// Company is the hard security boundary: every "root" model below (one a
+// page/route can look up directly by its own id) carries a companyId and is
+// scoped by it on every query, enforced centrally by the Prisma Client
+// Extension in lib/tenant.ts rather than trusted to each call site. Child
+// records (a JobCostCode, a DailyReportPhoto, ...) are NOT separately
+// company-scoped — they inherit isolation from their parent (a JobCostCode
+// is only ever reached through an already-scoped Job), which is why any
+// code path that looks up a child by its own id directly (the photo/document
+// download routes) must explicitly re-validate the parent chain instead of
+// relying on the extension.
+model Company {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+
+  divisions              Division[]
+  users                  User[]
+  workers                Worker[]
+  customers              Customer[]
+  jobs                   Job[]
+  costCodes              CostCode[]
+  equipment              Equipment[]
+  apiKeys                ApiKey[]
+  webhooks               Webhook[]
+  accountingMappings     AccountingCategoryMapping[]
+  checklistTemplateItems ChecklistTemplateItem[]
+  auditLogs              AuditLog[]
+  ssoConfig              SsoConfig?
+  integrationCredentials IntegrationCredential[]
+}
+
+// Organizational segmentation within a company (e.g. "Concrete Division",
+// "Northeast Region") — not itself a security boundary the way Company is,
+// just a way to group jobs and staff.
+model Division {
+  id        String   @id @default(cuid())
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId String
+  name      String
+  createdAt DateTime @default(now())
+
+  users Worker[] @relation("WorkerDivision")
+  jobs  Job[]
+
+  @@unique([companyId, name])
+}
+
 model Worker {
   id                  String                 @id @default(cuid())
+  company             Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId           String
+  division            Division?              @relation("WorkerDivision", fields: [divisionId], references: [id])
+  divisionId          String?
   name                String
   role                String?
   phone               String?
@@ -104,6 +158,8 @@ model Worker {
   unavailability      WorkerUnavailability[]
   checklistItemsDone  JobChecklistItem[]
   documentsUploaded   Document[]
+
+  @@index([companyId])
 }
 
 // A day a worker is marked unavailable (PTO, sick, other commitment) — checked
@@ -125,17 +181,72 @@ model WorkerUnavailability {
 // can still be recorded as who a foreman entered production for).
 model User {
   id           String   @id @default(cuid())
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId    String
   name         String
   email        String   @unique
-  passwordHash String
+  passwordHash String? // null when authProvider is SSO-only
   role         Role     @default(FOREMAN)
   active       Boolean  @default(true)
   createdAt    DateTime @default(now())
   pmForJobs    Job[]    @relation("JobPM")
+
+  // SSO-ready: a user authenticates either by password or by an external
+  // IdP's subject claim. authProvider decides which login path validates
+  // this account; ssoSubject only means something when it's SSO.
+  authProvider String  @default("PASSWORD") // "PASSWORD" | "SSO"
+  ssoSubject   String?
+
+  @@unique([companyId, ssoSubject])
+  @@index([companyId])
+}
+
+// Per-company SSO configuration (OIDC authorization-code flow). Inert until
+// enabled+configured with a real identity provider's details — the customer
+// registers CrewSync as a client in their own IdP (Okta, Azure AD, Google
+// Workspace, ...) and pastes the issuer/client id/secret in here.
+model SsoConfig {
+  id                    String   @id @default(cuid())
+  company               Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId             String   @unique
+  enabled               Boolean  @default(false)
+  issuerUrl             String?
+  clientId              String?
+  clientSecretEncrypted String? // AES-256-GCM via lib/crypto.ts — never stored in plaintext
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+// Generic encrypted credential storage for external-system connectors
+// (Autodesk, BuildingConnected, an accounting system's API). Not read by any
+// live connector yet — see lib/accounting/connector.ts — but the storage is
+// real and the encryption is real, so wiring a connector to it later doesn't
+// need a security redesign.
+enum IntegrationProvider {
+  AUTODESK
+  BUILDINGCONNECTED
+  QUICKBOOKS
+  SAGE
+  FOUNDATION
+}
+
+model IntegrationCredential {
+  id            String              @id @default(cuid())
+  company       Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId     String
+  provider      IntegrationProvider
+  encryptedData String // AES-256-GCM ciphertext of a JSON blob (client id/secret/tokens) via lib/crypto.ts
+  connected     Boolean             @default(false)
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  @@unique([companyId, provider])
 }
 
 model Customer {
   id        String   @id @default(cuid())
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId String
   name      String
   phone     String?
   email     String?
@@ -143,10 +254,16 @@ model Customer {
   notes     String?
   createdAt DateTime @default(now())
   jobs      Job[]
+
+  @@index([companyId])
 }
 
 model Job {
   id          String    @id @default(cuid())
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId   String
+  division    Division? @relation(fields: [divisionId], references: [id])
+  divisionId  String?
   title       String
   description String?
   status      JobStatus @default(SCHEDULED)
@@ -181,6 +298,8 @@ model Job {
   invoices             Invoice[]
   checklistItems       JobChecklistItem[]
   documents            Document[]
+
+  @@index([companyId])
 }
 
 // A real invoice record — "billed to date" is computed as the sum of SENT
@@ -215,22 +334,31 @@ model JobAssignment {
 // that has ever used this code, not stored redundantly here.
 model CostCode {
   id           String        @id @default(cuid())
-  code         String        @unique
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId    String
+  code         String
   description  String
   unit         UnitOfMeasure
   glCode       String? // maps this cost code to the accounting system's GL/cost code for export
   createdAt    DateTime      @default(now())
   jobCostCodes JobCostCode[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
 }
 
 // Maps each cost category to a GL account for the accounting export — a
 // company-wide setting (not per-job), configured once by accounting/admin.
 model AccountingCategoryMapping {
   id            String       @id @default(cuid())
-  category      CostCategory @unique
+  company       Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId     String
+  category      CostCategory
   glCode        String
   glAccountName String?
   updatedAt     DateTime     @updatedAt
+
+  @@unique([companyId, category])
 }
 
 // The budget line: what a job's estimate says a cost code should cost in
@@ -392,6 +520,8 @@ model MaterialRequest {
 // actual equipment cost against budget.
 model Equipment {
   id              String                @id @default(cuid())
+  company         Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId       String
   name            String
   type            String?
   ownership       EquipmentOwnership    @default(OWNED)
@@ -399,6 +529,8 @@ model Equipment {
   active          Boolean               @default(true)
   createdAt       DateTime              @default(now())
   assignments     EquipmentAssignment[]
+
+  @@index([companyId])
 }
 
 model EquipmentAssignment {
@@ -437,12 +569,14 @@ model SubcontractorCost {
 // instead of hardcoded — the actual automation engine.
 model ChecklistTemplateItem {
   id        String       @id @default(cuid())
+  company   Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId String
   stage     ProjectStage
   title     String
   sortOrder Int          @default(0)
   createdAt DateTime     @default(now())
 
-  @@index([stage])
+  @@index([companyId, stage])
 }
 
 // A checklist item generated (or manually added) on a specific job. Source
@@ -496,12 +630,14 @@ model Document {
   @@index([jobId, category])
 }
 
-// One row per significant mutation — who, what, on which record, when. Not
-// every action in the app logs here (that would be most of the codebase);
-// it covers the mutations that matter for an audit trail: stage changes,
-// approvals, deletions, status changes on money-adjacent records.
+// One row per significant mutation — who, what, on which record, when.
+// Covers stage changes, approvals, deletions, status changes on
+// money-adjacent records, and security-config changes (keys, webhooks, GL
+// mapping) — see lib/audit.ts for the exact call sites.
 model AuditLog {
   id         String   @id @default(cuid())
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId  String
   userId     String?
   userName   String
   userRole   Role
@@ -512,6 +648,7 @@ model AuditLog {
   detail     String?
   createdAt  DateTime @default(now())
 
+  @@index([companyId, createdAt])
   @@index([jobId, createdAt])
   @@index([entityType, entityId])
 }
@@ -521,12 +658,16 @@ model AuditLog {
 // retrievable again, same principle as a password.
 model ApiKey {
   id         String    @id @default(cuid())
+  company    Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId  String
   name       String
   keyHash    String    @unique
   keyPrefix  String
   active     Boolean   @default(true)
   lastUsedAt DateTime?
   createdAt  DateTime  @default(now())
+
+  @@index([companyId])
 }
 
 enum WebhookEvent {
@@ -538,25 +679,35 @@ enum WebhookEvent {
 
 model Webhook {
   id         String            @id @default(cuid())
+  company    Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId  String
   url        String
   events     WebhookEvent[]
   secret     String
   active     Boolean           @default(true)
   createdAt  DateTime          @default(now())
   deliveries WebhookDelivery[]
+
+  @@index([companyId])
 }
 
 // Delivery attempts recorded for visibility — did the endpoint actually
-// receive it, what did it respond with.
+// receive it, what did it respond with. Failed deliveries are retried with
+// exponential backoff (nextRetryAt) up to a cap, then deadLettered so a
+// permanently-broken endpoint doesn't retry forever.
 model WebhookDelivery {
-  id         String       @id @default(cuid())
-  webhook    Webhook      @relation(fields: [webhookId], references: [id], onDelete: Cascade)
-  webhookId  String
-  event      WebhookEvent
-  payload    String
-  statusCode Int?
-  success    Boolean
-  createdAt  DateTime     @default(now())
+  id           String       @id @default(cuid())
+  webhook      Webhook      @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  webhookId    String
+  event        WebhookEvent
+  payload      String
+  statusCode   Int?
+  success      Boolean
+  attempt      Int          @default(1)
+  nextRetryAt  DateTime?
+  deadLettered Boolean      @default(false)
+  createdAt    DateTime     @default(now())
 
   @@index([webhookId, createdAt])
+  @@index([nextRetryAt])
 }

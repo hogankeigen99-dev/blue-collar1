@@ -1,6 +1,6 @@
 "use server";
 
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/session";
@@ -11,7 +11,8 @@ import { parseDateKey, dateKey, addDays } from "@/lib/schedule";
  * assignment) and surfaces them back on the schedule page rather than silently allowing
  * or hard-blocking the change — a dispatcher may have a legitimate reason to override. */
 export async function setScheduleAssignment(formData: FormData) {
-  await requireRole("ADMIN", "PM");
+  const session = await requireRole("ADMIN", "PM");
+  const prisma = scopedPrisma(session.companyId);
 
   const workerId = String(formData.get("workerId") ?? "");
   const dateKeyValue = String(formData.get("date") ?? "");
@@ -19,6 +20,11 @@ export async function setScheduleAssignment(formData: FormData) {
   const jobId = String(formData.get("jobId") ?? "");
   const week = String(formData.get("week") ?? "");
   if (!workerId || !dateKeyValue) throw new Error("Worker and date are required");
+
+  // ScheduleAssignment is a child of Worker/Job (no companyId of its own)
+  // and this uses upsert (left unscoped by design) — verify the worker,
+  // and the job if given, belong to this company before writing.
+  await prisma.worker.findFirstOrThrow({ where: { id: workerId } });
 
   const startDate = parseDateKey(dateKeyValue);
   const endDate = throughDateValue ? parseDateKey(throughDateValue) : startDate;
@@ -32,7 +38,7 @@ export async function setScheduleAssignment(formData: FormData) {
 
   if (jobId) {
     const [job, unavailableDays, existingAssignments] = await Promise.all([
-      prisma.job.findUnique({ where: { id: jobId }, select: { title: true } }),
+      prisma.job.findFirst({ where: { id: jobId }, select: { title: true } }),
       prisma.workerUnavailability.findMany({
         where: { workerId, date: { in: dates } },
       }),
@@ -41,6 +47,7 @@ export async function setScheduleAssignment(formData: FormData) {
         include: { job: { select: { title: true } } },
       }),
     ]);
+    if (!job) throw new Error("Job not found");
 
     for (const u of unavailableDays) {
       warnings.push(`marked unavailable on ${dateKey(u.date)}${u.reason ? ` (${u.reason})` : ""}`);

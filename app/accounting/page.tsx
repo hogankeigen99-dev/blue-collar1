@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
 import { setAccountingMapping, setCostCodeGlCode } from "@/lib/accounting-actions";
 import { requirePageRole } from "@/lib/session";
 import { COST_CATEGORY_LABEL } from "@/lib/format";
@@ -8,7 +8,8 @@ export const dynamic = "force-dynamic";
 const CATEGORIES = ["LABOR", "MATERIAL", "EQUIPMENT", "SUBCONTRACTOR", "OTHER"] as const;
 
 export default async function AccountingPage() {
-  await requirePageRole("ADMIN", "PM");
+  const session = await requirePageRole("ADMIN", "PM");
+  const prisma = scopedPrisma(session.companyId);
 
   const [mappings, costCodes] = await Promise.all([
     prisma.accountingCategoryMapping.findMany(),

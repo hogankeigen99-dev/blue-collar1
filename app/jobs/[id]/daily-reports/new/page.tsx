@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
+import { requireSession } from "@/lib/session";
 import { submitDailyReport } from "@/lib/daily-report-actions";
 
 function todayLocal(): string {
@@ -12,9 +13,11 @@ export default async function NewDailyReportPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const session = await requireSession();
+  const prisma = scopedPrisma(session.companyId);
   const { id } = await params;
   const [job, workers] = await Promise.all([
-    prisma.job.findUnique({ where: { id } }),
+    prisma.job.findFirst({ where: { id } }),
     prisma.worker.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
   ]);
   if (!job) notFound();

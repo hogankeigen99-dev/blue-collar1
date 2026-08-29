@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
 import { setScheduleAssignment } from "@/lib/schedule-actions";
 import { requirePageRole } from "@/lib/session";
 import { dateKey, parseDateKey } from "@/lib/schedule";
@@ -12,12 +12,13 @@ export default async function AssignSchedulePage({
   params: Promise<{ workerId: string; date: string }>;
   searchParams: Promise<{ week?: string }>;
 }) {
-  await requirePageRole("ADMIN", "PM");
+  const session = await requirePageRole("ADMIN", "PM");
+  const prisma = scopedPrisma(session.companyId);
   const { workerId, date } = await params;
   const { week } = await searchParams;
 
   const [worker, jobs, existing, unavailable] = await Promise.all([
-    prisma.worker.findUnique({ where: { id: workerId } }),
+    prisma.worker.findFirst({ where: { id: workerId } }),
     prisma.job.findMany({
       where: { status: { in: ["SCHEDULED", "IN_PROGRESS"] } },
       orderBy: { title: "asc" },

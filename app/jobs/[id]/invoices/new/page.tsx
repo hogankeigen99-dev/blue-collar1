@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
 import { createInvoice } from "@/lib/invoice-actions";
 import { requirePageRole } from "@/lib/session";
 
@@ -13,9 +13,10 @@ export default async function NewInvoicePage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  await requirePageRole("ADMIN", "PM");
+  const session = await requirePageRole("ADMIN", "PM");
+  const prisma = scopedPrisma(session.companyId);
   const { id } = await params;
-  const job = await prisma.job.findUnique({ where: { id } });
+  const job = await prisma.job.findFirst({ where: { id } });
   if (!job) notFound();
 
   return (

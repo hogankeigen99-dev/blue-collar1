@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
 import { uploadDocument, deleteDocument } from "@/lib/document-actions";
 import { requireSession } from "@/lib/session";
 import { canManageJobs } from "@/lib/auth";
@@ -33,9 +33,10 @@ export default async function DocumentsPage({
   params: Promise<{ id: string }>;
 }) {
   const session = await requireSession();
+  const prisma = scopedPrisma(session.companyId);
   const { id } = await params;
   const [job, documents, workers] = await Promise.all([
-    prisma.job.findUnique({ where: { id } }),
+    prisma.job.findFirst({ where: { id } }),
     prisma.document.findMany({ where: { jobId: id }, orderBy: { createdAt: "desc" }, include: { uploadedBy: true } }),
     prisma.worker.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
   ]);

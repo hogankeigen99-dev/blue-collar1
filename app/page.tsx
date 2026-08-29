@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
 import { getAlerts, ALERT_TYPE_LABEL } from "@/lib/alerts";
 import { requireSession } from "@/lib/session";
 import { canManageJobs } from "@/lib/auth";
@@ -20,6 +20,7 @@ const STATUS_LABEL: Record<string, string> = {
 
 export default async function DashboardPage() {
   const session = await requireSession();
+  const prisma = scopedPrisma(session.companyId);
   const [jobs, workerCount, customerCount, alerts] = await Promise.all([
     prisma.job.findMany({
       orderBy: { scheduledAt: "asc" },
@@ -28,7 +29,7 @@ export default async function DashboardPage() {
     }),
     prisma.worker.count({ where: { active: true } }),
     prisma.customer.count(),
-    getAlerts(),
+    getAlerts(session.companyId),
   ]);
 
   const topAlerts = alerts.slice(0, 5);

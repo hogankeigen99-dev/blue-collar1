@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
 import { requireSession } from "@/lib/session";
 import { canManageJobs } from "@/lib/auth";
 import { addDays, dateKey, formatDayHeader, jobColorClass, startOfWeek, weekDates } from "@/lib/schedule";
@@ -12,6 +12,7 @@ export default async function SchedulePage({
   searchParams: Promise<{ week?: string; warning?: string }>;
 }) {
   const session = await requireSession();
+  const prisma = scopedPrisma(session.companyId);
   const { week, warning } = await searchParams;
 
   const monday = startOfWeek(week ? new Date(`${week}T00:00:00.000Z`) : new Date());
@@ -24,8 +25,10 @@ export default async function SchedulePage({
       where: { status: { in: ["SCHEDULED", "IN_PROGRESS"] } },
       orderBy: { title: "asc" },
     }),
+    // ScheduleAssignment isn't a tenant model — scope it explicitly via the
+    // worker relation so another company's assignments never load here.
     prisma.scheduleAssignment.findMany({
-      where: { date: { gte: monday, lt: rangeEnd } },
+      where: { date: { gte: monday, lt: rangeEnd }, worker: { companyId: session.companyId } },
       include: { job: { select: { id: true, title: true } } },
     }),
   ]);

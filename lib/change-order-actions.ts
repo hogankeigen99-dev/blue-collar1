@@ -1,6 +1,6 @@
 "use server";
 
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireSession, requireRole } from "@/lib/session";
@@ -21,10 +21,15 @@ function num(formData: FormData, key: string): number | undefined {
 
 /** Field identifies extra work — any signed-in role, so it gets captured before it's forgotten. */
 export async function createChangeOrder(formData: FormData) {
-  await requireSession();
+  const session = await requireSession();
+  const prisma = scopedPrisma(session.companyId);
   const jobId = str(formData, "jobId");
   const title = str(formData, "title");
   if (!jobId || !title) throw new Error("Job and title are required");
+
+  // ChangeOrder is a child of Job (no companyId of its own) — verify the
+  // job belongs to this company before creating against it.
+  await prisma.job.findFirstOrThrow({ where: { id: jobId } });
 
   await prisma.changeOrder.create({
     data: {
@@ -43,10 +48,18 @@ export async function createChangeOrder(formData: FormData) {
 /** PM prices it and moves it through submitted/approved/rejected — PM/ADMIN only. */
 export async function updateChangeOrder(formData: FormData) {
   const session = await requireRole("ADMIN", "PM");
+  const prisma = scopedPrisma(session.companyId);
   const id = str(formData, "id");
   const jobId = str(formData, "jobId");
   const status = str(formData, "status");
   if (!id || !jobId || !status) throw new Error("Change order, job, and status are required");
+
+  // ChangeOrder isn't a tenant model, so `where: { id }` alone can't be
+  // scoped by the extension — verify the job belongs to this company, then
+  // that the change order belongs to that job, before updating it.
+  await prisma.job.findFirstOrThrow({ where: { id: jobId } });
+  const existing = await prisma.changeOrder.findFirst({ where: { id, jobId } });
+  if (!existing) throw new Error("Change order not found");
 
   const co = await prisma.changeOrder.update({
     where: { id },
@@ -66,7 +79,7 @@ export async function updateChangeOrder(formData: FormData) {
       jobId,
       detail: `"${co.title}" — revenue ${co.revenueAmount ?? 0}, cost ${co.costAmount ?? 0}`,
     });
-    await dispatchWebhook("CHANGE_ORDER_APPROVED", {
+    await dispatchWebhook(session.companyId, "CHANGE_ORDER_APPROVED", {
       jobId,
       changeOrderId: id,
       title: co.title,

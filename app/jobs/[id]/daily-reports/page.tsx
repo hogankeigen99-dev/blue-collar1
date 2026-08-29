@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
+import { requireSession } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -9,9 +10,11 @@ export default async function DailyReportsPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const session = await requireSession();
+  const prisma = scopedPrisma(session.companyId);
   const { id } = await params;
   const [job, reports] = await Promise.all([
-    prisma.job.findUnique({ where: { id } }),
+    prisma.job.findFirst({ where: { id } }),
     prisma.dailyReport.findMany({
       where: { jobId: id },
       orderBy: { date: "desc" },

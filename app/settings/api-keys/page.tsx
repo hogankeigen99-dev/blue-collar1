@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
 import { createApiKey, revokeApiKey } from "@/lib/settings-actions";
 import { requirePageRole } from "@/lib/session";
 import { formatDate } from "@/lib/format";
@@ -10,7 +10,8 @@ export default async function ApiKeysPage({
 }: {
   searchParams: Promise<{ created?: string }>;
 }) {
-  await requirePageRole("ADMIN");
+  const session = await requirePageRole("ADMIN");
+  const prisma = scopedPrisma(session.companyId);
   const { created } = await searchParams;
   const keys = await prisma.apiKey.findMany({ orderBy: { createdAt: "desc" } });
 

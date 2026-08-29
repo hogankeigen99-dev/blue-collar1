@@ -1,6 +1,6 @@
 "use server";
 
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole, requireSession } from "@/lib/session";
@@ -20,12 +20,14 @@ function num(formData: FormData, key: string): number | undefined {
 }
 
 export async function createWorker(formData: FormData) {
-  await requireRole("ADMIN", "PM");
+  const session = await requireRole("ADMIN", "PM");
+  const prisma = scopedPrisma(session.companyId);
   const name = str(formData, "name");
   if (!name) throw new Error("Name is required");
 
   await prisma.worker.create({
     data: {
+      companyId: session.companyId,
       name,
       role: str(formData, "role"),
       phone: str(formData, "phone"),
@@ -39,12 +41,14 @@ export async function createWorker(formData: FormData) {
 }
 
 export async function createCustomer(formData: FormData) {
-  await requireRole("ADMIN", "PM");
+  const session = await requireRole("ADMIN", "PM");
+  const prisma = scopedPrisma(session.companyId);
   const name = str(formData, "name");
   if (!name) throw new Error("Name is required");
 
   await prisma.customer.create({
     data: {
+      companyId: session.companyId,
       name,
       phone: str(formData, "phone"),
       email: str(formData, "email"),
@@ -58,7 +62,8 @@ export async function createCustomer(formData: FormData) {
 }
 
 export async function createJob(formData: FormData) {
-  await requireRole("ADMIN", "PM");
+  const session = await requireRole("ADMIN", "PM");
+  const prisma = scopedPrisma(session.companyId);
   const title = str(formData, "title");
   if (!title) throw new Error("Title is required");
 
@@ -69,6 +74,7 @@ export async function createJob(formData: FormData) {
 
   const job = await prisma.job.create({
     data: {
+      companyId: session.companyId,
       title,
       description: str(formData, "description"),
       address: str(formData, "address"),
@@ -89,7 +95,8 @@ export async function createJob(formData: FormData) {
 }
 
 export async function updateJobStatus(jobId: string, status: string) {
-  await requireSession(); // any signed-in role, including foremen in the field
+  const session = await requireSession(); // any signed-in role, including foremen in the field
+  const prisma = scopedPrisma(session.companyId);
   await prisma.job.update({
     where: { id: jobId },
     data: { status: status as never },
@@ -101,6 +108,7 @@ export async function updateJobStatus(jobId: string, status: string) {
 
 export async function deleteJob(jobId: string) {
   const session = await requireRole("ADMIN", "PM");
+  const prisma = scopedPrisma(session.companyId);
   const job = await prisma.job.delete({ where: { id: jobId } });
   await logAudit(session, { action: "job.deleted", entityType: "Job", entityId: jobId, detail: job.title });
   revalidatePath("/jobs");

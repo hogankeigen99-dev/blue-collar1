@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
 
 export type BillingCheck = {
   key: string;
@@ -14,9 +14,10 @@ export type BillingReadiness = {
 
 const OPEN_MATERIAL_STATUSES = ["REQUESTED", "APPROVED", "PO_ISSUED", "ORDERED"];
 
-export async function getBillingReadiness(jobId: string): Promise<BillingReadiness> {
+export async function getBillingReadiness(companyId: string, jobId: string): Promise<BillingReadiness> {
+  const prisma = scopedPrisma(companyId);
   const [job, changeOrders, dailyReports, materialRequests, subcontractorCosts] = await Promise.all([
-    prisma.job.findUniqueOrThrow({ where: { id: jobId } }),
+    prisma.job.findFirstOrThrow({ where: { id: jobId } }),
     prisma.changeOrder.findMany({ where: { jobId } }),
     prisma.dailyReport.findMany({ where: { jobId }, orderBy: { date: "desc" }, take: 1 }),
     prisma.materialRequest.findMany({ where: { jobId } }),

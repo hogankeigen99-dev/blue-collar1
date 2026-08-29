@@ -1,6 +1,6 @@
 "use server";
 
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/session";
@@ -11,15 +11,18 @@ function str(formData: FormData, key: string): string | undefined {
 }
 
 export async function setAccountingMapping(formData: FormData) {
-  await requireRole("ADMIN", "PM");
+  const session = await requireRole("ADMIN", "PM");
+  const prisma = scopedPrisma(session.companyId);
   const category = str(formData, "category");
   const glCode = str(formData, "glCode");
   if (!category || !glCode) throw new Error("Category and GL code are required");
 
+  // upsert is deliberately left unscoped by scopedPrisma() — pass the
+  // compound (companyId + category) unique key explicitly.
   await prisma.accountingCategoryMapping.upsert({
-    where: { category: category as never },
+    where: { companyId_category: { companyId: session.companyId, category: category as never } },
     update: { glCode, glAccountName: str(formData, "glAccountName") },
-    create: { category: category as never, glCode, glAccountName: str(formData, "glAccountName") },
+    create: { companyId: session.companyId, category: category as never, glCode, glAccountName: str(formData, "glAccountName") },
   });
 
   revalidatePath("/accounting");
@@ -27,7 +30,8 @@ export async function setAccountingMapping(formData: FormData) {
 }
 
 export async function setCostCodeGlCode(formData: FormData) {
-  await requireRole("ADMIN", "PM");
+  const session = await requireRole("ADMIN", "PM");
+  const prisma = scopedPrisma(session.companyId);
   const costCodeId = str(formData, "costCodeId");
   if (!costCodeId) throw new Error("Cost code is required");
 

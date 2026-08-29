@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
 import { updateJobCommandCenter } from "@/lib/command-center-actions";
 import { requirePageRole } from "@/lib/session";
 import { PROJECT_STAGE_LABEL } from "@/lib/format";
@@ -16,11 +16,12 @@ export default async function EditCommandCenterPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  await requirePageRole("ADMIN", "PM");
+  const session = await requirePageRole("ADMIN", "PM");
+  const prisma = scopedPrisma(session.companyId);
   const { id } = await params;
 
   const [job, pmUsers, foremen] = await Promise.all([
-    prisma.job.findUnique({ where: { id } }),
+    prisma.job.findFirst({ where: { id } }),
     prisma.user.findMany({ where: { role: { in: ["ADMIN", "PM"] }, active: true }, orderBy: { name: "asc" } }),
     prisma.worker.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
   ]);

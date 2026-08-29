@@ -1,4 +1,4 @@
-import { createCostCode } from "@/lib/productivity-actions";
+import { createCostCode } from "@/lib/materials-actions";
 import { requirePageRole } from "@/lib/session";
 
 const UNITS = ["CY", "SF", "LF", "SQ", "TON", "EA", "HR", "LS"] as const;

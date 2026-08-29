@@ -6,30 +6,44 @@ import { generateChecklistForStage } from "../lib/checklist";
 const prisma = new PrismaClient();
 
 async function main() {
+  // Two companies so multi-tenant isolation is demonstrable out of the box —
+  // logging in as one company's users must never surface the other's data.
+  const company = await prisma.company.create({
+    data: { name: "CrewSync Demo GC", slug: "crewsync-demo" },
+  });
+  const otherCompany = await prisma.company.create({
+    data: { name: "Second Co Construction", slug: "second-co" },
+  });
+
+  const fieldOps = await prisma.division.create({
+    data: { companyId: company.id, name: "Field Operations" },
+  });
+
   // The automation engine's templates — company-wide, editable at /settings/checklist-templates.
   await prisma.checklistTemplateItem.createMany({
     data: [
-      { stage: "PRECON", title: "Confirm contract value and PM assignment", sortOrder: 1 },
-      { stage: "PRECON", title: "Add cost code budget lines", sortOrder: 2 },
-      { stage: "PRECON", title: "Assign foreman", sortOrder: 3 },
-      { stage: "MOBILIZATION", title: "Schedule crew for week 1", sortOrder: 1 },
-      { stage: "MOBILIZATION", title: "Submit material requirements", sortOrder: 2 },
-      { stage: "MOBILIZATION", title: "Confirm equipment needs", sortOrder: 3 },
-      { stage: "ACTIVE", title: "Submit first daily report", sortOrder: 1 },
-      { stage: "ACTIVE", title: "Confirm cost code budgets are tracking", sortOrder: 2 },
-      { stage: "PUNCH_LIST", title: "Walk punch list with customer", sortOrder: 1 },
-      { stage: "PUNCH_LIST", title: "Log punch items as change orders if scope changed", sortOrder: 2 },
-      { stage: "CLOSEOUT", title: "Confirm punch list complete", sortOrder: 1 },
-      { stage: "CLOSEOUT", title: "Collect required documents", sortOrder: 2 },
-      { stage: "CLOSEOUT", title: "Submit final invoice", sortOrder: 3 },
-      { stage: "COMPLETE", title: "Archive project documents", sortOrder: 1 },
-      { stage: "COMPLETE", title: "Confirm final invoice paid", sortOrder: 2 },
+      { companyId: company.id, stage: "PRECON", title: "Confirm contract value and PM assignment", sortOrder: 1 },
+      { companyId: company.id, stage: "PRECON", title: "Add cost code budget lines", sortOrder: 2 },
+      { companyId: company.id, stage: "PRECON", title: "Assign foreman", sortOrder: 3 },
+      { companyId: company.id, stage: "MOBILIZATION", title: "Schedule crew for week 1", sortOrder: 1 },
+      { companyId: company.id, stage: "MOBILIZATION", title: "Submit material requirements", sortOrder: 2 },
+      { companyId: company.id, stage: "MOBILIZATION", title: "Confirm equipment needs", sortOrder: 3 },
+      { companyId: company.id, stage: "ACTIVE", title: "Submit first daily report", sortOrder: 1 },
+      { companyId: company.id, stage: "ACTIVE", title: "Confirm cost code budgets are tracking", sortOrder: 2 },
+      { companyId: company.id, stage: "PUNCH_LIST", title: "Walk punch list with customer", sortOrder: 1 },
+      { companyId: company.id, stage: "PUNCH_LIST", title: "Log punch items as change orders if scope changed", sortOrder: 2 },
+      { companyId: company.id, stage: "CLOSEOUT", title: "Confirm punch list complete", sortOrder: 1 },
+      { companyId: company.id, stage: "CLOSEOUT", title: "Collect required documents", sortOrder: 2 },
+      { companyId: company.id, stage: "CLOSEOUT", title: "Submit final invoice", sortOrder: 3 },
+      { companyId: company.id, stage: "COMPLETE", title: "Archive project documents", sortOrder: 1 },
+      { companyId: company.id, stage: "COMPLETE", title: "Confirm final invoice paid", sortOrder: 2 },
     ],
   });
 
   // Demo login accounts — local/dev only, never real production credentials.
   await prisma.user.create({
     data: {
+      companyId: company.id,
       name: "Amanda Reyes",
       email: "admin@crewsync.dev",
       passwordHash: hashPassword("admin12345"),
@@ -38,6 +52,7 @@ async function main() {
   });
   const priya = await prisma.user.create({
     data: {
+      companyId: company.id,
       name: "Priya Shah",
       email: "pm@crewsync.dev",
       passwordHash: hashPassword("pm12345678"),
@@ -46,6 +61,7 @@ async function main() {
   });
   await prisma.user.create({
     data: {
+      companyId: company.id,
       name: "Frank Delgado",
       email: "foreman@crewsync.dev",
       passwordHash: hashPassword("foreman1234"),
@@ -54,14 +70,15 @@ async function main() {
   });
 
   const alice = await prisma.worker.create({
-    data: { name: "Alice Johnson", role: "Electrician", phone: "555-0101" },
+    data: { companyId: company.id, name: "Alice Johnson", role: "Electrician", phone: "555-0101" },
   });
   const bob = await prisma.worker.create({
-    data: { name: "Bob Martinez", role: "Plumber", phone: "555-0102" },
+    data: { companyId: company.id, name: "Bob Martinez", role: "Plumber", phone: "555-0102" },
   });
 
   const customer = await prisma.customer.create({
     data: {
+      companyId: company.id,
       name: "Riverside Apartments",
       address: "123 River Rd",
       phone: "555-0200",
@@ -70,6 +87,8 @@ async function main() {
 
   const breakerPanel = await prisma.job.create({
     data: {
+      companyId: company.id,
+      divisionId: fieldOps.id,
       title: "Fix breaker panel",
       description: "Replace faulty breaker in unit 4B",
       address: "123 River Rd, Unit 4B",
@@ -82,6 +101,8 @@ async function main() {
 
   const leakingPipe = await prisma.job.create({
     data: {
+      companyId: company.id,
+      divisionId: fieldOps.id,
       title: "Leaking pipe under sink",
       description: "Kitchen sink leak, unit 2A",
       address: "123 River Rd, Unit 2A",
@@ -95,14 +116,15 @@ async function main() {
   // --- Self-perform labor productivity demo data ---
 
   const frank = await prisma.worker.create({
-    data: { name: "Frank Delgado", role: "Concrete Foreman", phone: "555-0301", laborRate: 62 },
+    data: { companyId: company.id, name: "Frank Delgado", role: "Concrete Foreman", phone: "555-0301", laborRate: 62 },
   });
   const miguel = await prisma.worker.create({
-    data: { name: "Miguel Torres", role: "Laborer", phone: "555-0302", laborRate: 38 },
+    data: { companyId: company.id, name: "Miguel Torres", role: "Laborer", phone: "555-0302", laborRate: 38 },
   });
 
   const concreteSlab = await prisma.costCode.create({
     data: {
+      companyId: company.id,
       code: "03 30 00",
       description: "Concrete slab on grade",
       unit: "CY",
@@ -110,6 +132,7 @@ async function main() {
   });
   const excavation = await prisma.costCode.create({
     data: {
+      companyId: company.id,
       code: "31 23 00",
       description: "Excavation",
       unit: "CY",
@@ -117,6 +140,7 @@ async function main() {
   });
   await prisma.costCode.create({
     data: {
+      companyId: company.id,
       code: "26 05 00",
       description: "Electrical rough-in",
       unit: "HR",
@@ -124,12 +148,14 @@ async function main() {
   });
 
   const harborView = await prisma.customer.create({
-    data: { name: "Harbor View Development", address: "8800 Harbor View Dr" },
+    data: { companyId: company.id, name: "Harbor View Development", address: "8800 Harbor View Dr" },
   });
 
   // A job that came in on budget — anchors the historical rate for the code.
   const harborFoundation = await prisma.job.create({
     data: {
+      companyId: company.id,
+      divisionId: fieldOps.id,
       title: "Harbor View — Foundation Pour",
       description: "Slab on grade for the parking structure foundation",
       address: "8800 Harbor View Dr",
@@ -191,6 +217,8 @@ async function main() {
   // weeks later after Phase 3 has already been poured.
   const riverside2 = await prisma.job.create({
     data: {
+      companyId: company.id,
+      divisionId: fieldOps.id,
       title: "Riverside Apartments — Phase 2 Slab",
       description: "Slab on grade, Phase 2 of the podium deck",
       address: "123 River Rd",
@@ -282,7 +310,7 @@ async function main() {
   });
 
   const equipment = await prisma.equipment.create({
-    data: { name: "Concrete pump truck", type: "Pump truck", ownership: "RENTED", dailyRentalCost: 650 },
+    data: { companyId: company.id, name: "Concrete pump truck", type: "Pump truck", ownership: "RENTED", dailyRentalCost: 650 },
   });
   await prisma.equipmentAssignment.create({
     data: {
@@ -380,11 +408,11 @@ async function main() {
   // Accounting handoff: GL mapping so the CSV export is ready to import.
   await prisma.accountingCategoryMapping.createMany({
     data: [
-      { category: "LABOR", glCode: "6100", glAccountName: "Direct Labor" },
-      { category: "MATERIAL", glCode: "6200", glAccountName: "Materials" },
-      { category: "EQUIPMENT", glCode: "6300", glAccountName: "Equipment Rental" },
-      { category: "SUBCONTRACTOR", glCode: "6400", glAccountName: "Subcontract Costs" },
-      { category: "OTHER", glCode: "6900", glAccountName: "Other Job Costs" },
+      { companyId: company.id, category: "LABOR", glCode: "6100", glAccountName: "Direct Labor" },
+      { companyId: company.id, category: "MATERIAL", glCode: "6200", glAccountName: "Materials" },
+      { companyId: company.id, category: "EQUIPMENT", glCode: "6300", glAccountName: "Equipment Rental" },
+      { companyId: company.id, category: "SUBCONTRACTOR", glCode: "6400", glAccountName: "Subcontract Costs" },
+      { companyId: company.id, category: "OTHER", glCode: "6900", glAccountName: "Other Job Costs" },
     ],
   });
   await prisma.costCode.update({ where: { id: concreteSlab.id }, data: { glCode: "6100-CONC" } });
@@ -399,6 +427,44 @@ async function main() {
       { workerId: miguel.id, jobId: riverside2.id, date: addDays(monday, offset) },
     ]),
   });
+
+  // --- A second, unrelated company — proves cross-tenant isolation works,
+  // not just that a companyId column exists. Its admin should never be able
+  // to see any of the CrewSync Demo GC data seeded above, and vice versa. ---
+
+  await prisma.user.create({
+    data: {
+      companyId: otherCompany.id,
+      name: "Dana Okafor",
+      email: "admin@secondco.dev",
+      passwordHash: hashPassword("secondco123"),
+      role: "ADMIN",
+    },
+  });
+  const secondCoWorker = await prisma.worker.create({
+    data: { companyId: otherCompany.id, name: "Sam Torres", role: "Carpenter", phone: "555-0900" },
+  });
+  const secondCoCustomer = await prisma.customer.create({
+    data: { companyId: otherCompany.id, name: "Lakeside Offices", address: "40 Lakeside Blvd" },
+  });
+  const secondCoJob = await prisma.job.create({
+    data: {
+      companyId: otherCompany.id,
+      title: "Lakeside Offices — Tenant Buildout",
+      description: "Interior buildout for suite 300",
+      address: "40 Lakeside Blvd, Suite 300",
+      status: "SCHEDULED",
+      customerId: secondCoCustomer.id,
+      assignments: { create: [{ workerId: secondCoWorker.id }] },
+    },
+  });
+  await prisma.costCode.create({
+    data: { companyId: otherCompany.id, code: "06 10 00", description: "Rough carpentry", unit: "HR" },
+  });
+  await prisma.checklistTemplateItem.create({
+    data: { companyId: otherCompany.id, stage: "PRECON", title: "Confirm permit set", sortOrder: 1 },
+  });
+  await generateChecklistForStage(prisma, secondCoJob.id, "PRECON");
 }
 
 main()

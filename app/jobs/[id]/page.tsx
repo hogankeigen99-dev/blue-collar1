@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
 import { updateJobStatus, deleteJob } from "@/lib/actions";
 import { computeProgress, PRODUCTIVITY_STATUS_LABEL, PRODUCTIVITY_STATUS_CLASSES } from "@/lib/productivity";
 import { requireSession } from "@/lib/session";
@@ -24,27 +24,33 @@ export default async function JobDetailPage({
   searchParams: Promise<{ imported?: string; skipped?: string }>;
 }) {
   const session = await requireSession();
+  const prisma = scopedPrisma(session.companyId);
   const { id } = await params;
   const { imported, skipped } = await searchParams;
-  const [job, jobCostCodes, costing, billing] = await Promise.all([
-    prisma.job.findUnique({
-      where: { id },
-      include: { customer: true, assignments: { include: { worker: true } }, pm: true, foreman: true },
-    }),
+
+  // Resolve the job (and confirm it belongs to this company) before running
+  // anything else — getJobCosting/getBillingReadiness use findFirstOrThrow
+  // and would otherwise turn a cross-tenant id guess into a 500 instead of
+  // a clean 404.
+  const job = await prisma.job.findFirst({
+    where: { id },
+    include: { customer: true, assignments: { include: { worker: true } }, pm: true, foreman: true },
+  });
+  if (!job) notFound();
+
+  const [jobCostCodes, costing, billing] = await Promise.all([
     prisma.jobCostCode.findMany({
       where: { jobId: id },
       include: { costCode: true, entries: { orderBy: { date: "desc" } } },
       orderBy: { costCode: { code: "asc" } },
     }),
-    getJobCosting(id),
-    getBillingReadiness(id),
+    getJobCosting(session.companyId, id),
+    getBillingReadiness(session.companyId, id),
   ]);
   const [subcontractorCosts, checklistItems] = await Promise.all([
     prisma.subcontractorCost.findMany({ where: { jobId: id }, orderBy: { createdAt: "desc" } }),
     prisma.jobChecklistItem.findMany({ where: { jobId: id }, orderBy: { createdAt: "asc" } }),
   ]);
-
-  if (!job) notFound();
 
   const canManage = canManageJobs(session.role);
   const canEstimate = canManageEstimates(session.role);

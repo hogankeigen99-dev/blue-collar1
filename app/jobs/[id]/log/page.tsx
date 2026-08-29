@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
-import { logProduction } from "@/lib/productivity-actions";
+import { scopedPrisma } from "@/lib/tenant";
+import { requireSession } from "@/lib/session";
+import { logProduction } from "@/lib/materials-actions";
 
 function todayLocal(): string {
   return new Date().toISOString().slice(0, 10);
@@ -12,9 +13,11 @@ export default async function LogProductionPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const session = await requireSession();
+  const prisma = scopedPrisma(session.companyId);
   const { id } = await params;
   const [job, jobCostCodes, workers] = await Promise.all([
-    prisma.job.findUnique({ where: { id } }),
+    prisma.job.findFirst({ where: { id } }),
     prisma.jobCostCode.findMany({
       where: { jobId: id },
       include: { costCode: true },

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getAlerts, ALERT_TYPE_LABEL } from "@/lib/alerts";
+import { requireSession } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +10,8 @@ const SEVERITY_CLASSES: Record<string, string> = {
 };
 
 export default async function AlertsPage() {
-  const alerts = await getAlerts();
+  const session = await requireSession();
+  const alerts = await getAlerts(session.companyId);
   const critical = alerts.filter((a) => a.severity === "critical");
   const warning = alerts.filter((a) => a.severity === "warning");
 

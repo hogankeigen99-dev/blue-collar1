@@ -1,18 +1,24 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
+import { requireSession } from "@/lib/session";
 
 export default async function DailyReportDetailPage({
   params,
 }: {
   params: Promise<{ id: string; reportId: string }>;
 }) {
+  const session = await requireSession();
+  const prisma = scopedPrisma(session.companyId);
   const { id, reportId } = await params;
   const report = await prisma.dailyReport.findUnique({
     where: { id: reportId },
     include: { submittedBy: true, photos: true, job: true },
   });
-  if (!report || report.jobId !== id) notFound();
+  // DailyReport isn't a tenant model — confirm it's on the requested job AND
+  // that job belongs to this company (job comes back null via scopedPrisma
+  // if it doesn't, since Job is tenant-scoped and this uses a raw include).
+  if (!report || report.jobId !== id || report.job.companyId !== session.companyId) notFound();
 
   const rows: [string, string | null | undefined][] = [
     ["Work completed", report.workCompleted],

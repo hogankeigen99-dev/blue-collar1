@@ -1,15 +1,14 @@
 import Link from "next/link";
-import { prisma } from "@/lib/prisma";
-import { getSession } from "@/lib/session";
+import { scopedPrisma } from "@/lib/tenant";
+import { requireSession } from "@/lib/session";
 import { canManageJobs } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export default async function CustomersPage() {
-  const [customers, session] = await Promise.all([
-    prisma.customer.findMany({ orderBy: { name: "asc" } }),
-    getSession(),
-  ]);
+  const session = await requireSession();
+  const prisma = scopedPrisma(session.companyId);
+  const customers = await prisma.customer.findMany({ orderBy: { name: "asc" } });
 
   return (
     <div className="space-y-6">

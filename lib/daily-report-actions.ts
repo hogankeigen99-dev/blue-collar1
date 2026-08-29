@@ -1,6 +1,6 @@
 "use server";
 
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireSession } from "@/lib/session";
@@ -24,9 +24,14 @@ function num(formData: FormData, key: string): number | undefined {
 /** One report per job per day — submitting again for the same date updates it in place. */
 export async function submitDailyReport(formData: FormData) {
   const session = await requireSession(); // the foreman's core field workflow — any signed-in role
+  const prisma = scopedPrisma(session.companyId);
   const jobId = str(formData, "jobId");
   const dateRaw = str(formData, "date");
   if (!jobId || !dateRaw) throw new Error("Job and date are required");
+
+  // DailyReport is a child of Job and this is an upsert (left unscoped by
+  // design) — verify the job belongs to this company before writing.
+  await prisma.job.findFirstOrThrow({ where: { id: jobId } });
 
   const date = new Date(dateRaw);
   const hasChangeCondition = formData.get("hasChangeCondition") === "on";
@@ -87,14 +92,22 @@ export async function submitDailyReport(formData: FormData) {
     jobId,
     detail: dateRaw,
   });
-  await dispatchWebhook("DAILY_REPORT_SUBMITTED", { jobId, reportId: report.id, date: dateRaw });
+  await dispatchWebhook(session.companyId, "DAILY_REPORT_SUBMITTED", { jobId, reportId: report.id, date: dateRaw });
 
   revalidatePath(`/jobs/${jobId}`);
   redirect(`/jobs/${jobId}`);
 }
 
 export async function deleteDailyReportPhoto(photoId: string, jobId: string) {
-  await requireSession();
+  const session = await requireSession();
+  const prisma = scopedPrisma(session.companyId);
+  // DailyReportPhoto is a child of DailyReport/Job — confirm the job (and
+  // therefore the photo's report) belongs to this company before deleting.
+  await prisma.job.findFirstOrThrow({ where: { id: jobId } });
+  const photo = await prisma.dailyReportPhoto.findFirst({
+    where: { id: photoId, dailyReport: { jobId } },
+  });
+  if (!photo) throw new Error("Photo not found");
   await prisma.dailyReportPhoto.delete({ where: { id: photoId } });
   revalidatePath(`/jobs/${jobId}`);
 }

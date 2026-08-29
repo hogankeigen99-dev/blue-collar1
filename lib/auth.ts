@@ -6,6 +6,7 @@ export type Role = "ADMIN" | "PM" | "FOREMAN";
 
 export type SessionPayload = {
   userId: string;
+  companyId: string;
   name: string;
   email: string;
   role: Role;

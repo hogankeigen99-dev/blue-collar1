@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
 import { getSession } from "@/lib/session";
 import { canManageEstimates } from "@/lib/auth";
 import { getJobCosting } from "@/lib/job-costing";
@@ -19,11 +19,12 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   if (!session || !canManageEstimates(session.role)) {
     return new NextResponse("Unauthorized", { status: 401 });
   }
+  const prisma = scopedPrisma(session.companyId);
 
   const { id } = await params;
   const [job, costing, mappings, changeOrders, invoices] = await Promise.all([
-    prisma.job.findUnique({ where: { id } }),
-    getJobCosting(id).catch(() => null),
+    prisma.job.findFirst({ where: { id } }),
+    getJobCosting(session.companyId, id).catch(() => null),
     prisma.accountingCategoryMapping.findMany(),
     prisma.changeOrder.findMany({ where: { jobId: id, status: "APPROVED" } }),
     prisma.invoice.findMany({ where: { jobId: id } }),

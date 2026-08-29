@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
 import { updateEquipmentAssignment } from "@/lib/equipment-actions";
 import { requireSession } from "@/lib/session";
 import { canManageJobs } from "@/lib/auth";
@@ -17,6 +17,7 @@ export default async function EquipmentPage({
   searchParams: Promise<{ conflict?: string }>;
 }) {
   const session = await requireSession();
+  const prisma = scopedPrisma(session.companyId);
   const { conflict } = await searchParams;
   const equipment = await prisma.equipment.findMany({
     where: { active: true },

@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
 import { computeProgress } from "@/lib/productivity";
 
 /** Fallback blended crew rate ($/hr) used only when neither the entry's worker nor any worker on the job has a laborRate set. */
@@ -27,10 +27,11 @@ export type JobCosting = {
   projectedMarginPct: number | null;
 };
 
-export async function getJobCosting(jobId: string): Promise<JobCosting> {
+export async function getJobCosting(companyId: string, jobId: string): Promise<JobCosting> {
+  const prisma = scopedPrisma(companyId);
   const [job, budgets, jobCostCodes, materialRequests, equipmentAssignments, subcontractorCosts, changeOrders, invoices] =
     await Promise.all([
-      prisma.job.findUniqueOrThrow({ where: { id: jobId } }),
+      prisma.job.findFirstOrThrow({ where: { id: jobId } }),
       prisma.jobBudget.findMany({ where: { jobId } }),
       prisma.jobCostCode.findMany({ where: { jobId }, include: { entries: { include: { enteredBy: true } } } }),
       prisma.materialRequest.findMany({ where: { jobId } }),

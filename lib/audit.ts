@@ -7,6 +7,7 @@ export async function logAudit(
 ) {
   await prisma.auditLog.create({
     data: {
+      companyId: session.companyId,
       userId: session.userId,
       userName: session.name,
       userRole: session.role,

@@ -1,11 +1,12 @@
 import { createHmac } from "crypto";
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
 
-/** Fires a webhook event to every active, subscribed endpoint. Best-effort:
- * failures are recorded (WebhookDelivery.success=false) but never thrown —
- * a slow or dead customer endpoint should never break the action that
- * triggered it. */
-export async function dispatchWebhook(event: string, payload: Record<string, unknown>) {
+/** Fires a webhook event to every active, subscribed endpoint belonging to
+ * the triggering company. Best-effort: failures are recorded
+ * (WebhookDelivery.success=false) but never thrown — a slow or dead
+ * customer endpoint should never break the action that triggered it. */
+export async function dispatchWebhook(companyId: string, event: string, payload: Record<string, unknown>) {
+  const prisma = scopedPrisma(companyId);
   const webhooks = await prisma.webhook.findMany({
     where: { active: true, events: { has: event as never } },
   });

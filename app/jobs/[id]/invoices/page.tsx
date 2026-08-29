@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
 import { updateInvoiceStatus } from "@/lib/invoice-actions";
 import { requireSession } from "@/lib/session";
 import { canManageEstimates } from "@/lib/auth";
@@ -22,13 +22,19 @@ export default async function InvoicesPage({
   params: Promise<{ id: string }>;
 }) {
   const session = await requireSession();
+  const prisma = scopedPrisma(session.companyId);
   const { id } = await params;
-  const [job, invoices, readiness] = await Promise.all([
-    prisma.job.findUnique({ where: { id } }),
-    prisma.invoice.findMany({ where: { jobId: id }, orderBy: { date: "desc" } }),
-    getBillingReadiness(id),
-  ]);
+
+  // getBillingReadiness uses findFirstOrThrow — resolve the job (and
+  // confirm company ownership) first so a cross-tenant id guess 404s
+  // cleanly instead of throwing a 500.
+  const job = await prisma.job.findFirst({ where: { id } });
   if (!job) notFound();
+
+  const [invoices, readiness] = await Promise.all([
+    prisma.invoice.findMany({ where: { jobId: id }, orderBy: { date: "desc" } }),
+    getBillingReadiness(session.companyId, id),
+  ]);
 
   const canEdit = canManageEstimates(session.role);
   const total = invoices.reduce((s, i) => s + (i.status === "SENT" || i.status === "PAID" ? i.amount : 0), 0);

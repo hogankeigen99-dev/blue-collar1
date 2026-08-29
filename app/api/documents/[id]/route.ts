@@ -7,8 +7,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   if (!session) return new NextResponse("Unauthorized", { status: 401 });
 
   const { id } = await params;
-  const doc = await prisma.document.findUnique({ where: { id } });
-  if (!doc) return new NextResponse("Not found", { status: 404 });
+  // Document isn't a tenant model — it's reached directly by id here, so the
+  // job it belongs to (and that job's company) must be checked by hand.
+  const doc = await prisma.document.findUnique({ where: { id }, include: { job: { select: { companyId: true } } } });
+  if (!doc || doc.job.companyId !== session.companyId) return new NextResponse("Not found", { status: 404 });
 
   return new NextResponse(new Uint8Array(doc.data), {
     headers: {

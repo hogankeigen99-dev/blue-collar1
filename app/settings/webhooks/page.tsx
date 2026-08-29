@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { scopedPrisma } from "@/lib/tenant";
 import { createWebhook, toggleWebhook } from "@/lib/settings-actions";
 import { requirePageRole } from "@/lib/session";
 
@@ -17,7 +17,8 @@ export default async function WebhooksPage({
 }: {
   searchParams: Promise<{ created?: string }>;
 }) {
-  await requirePageRole("ADMIN");
+  const session = await requirePageRole("ADMIN");
+  const prisma = scopedPrisma(session.companyId);
   const { created } = await searchParams;
   const webhooks = await prisma.webhook.findMany({
     orderBy: { createdAt: "desc" },
