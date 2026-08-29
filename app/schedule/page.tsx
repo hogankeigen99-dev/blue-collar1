@@ -9,10 +9,10 @@ export const dynamic = "force-dynamic";
 export default async function SchedulePage({
   searchParams,
 }: {
-  searchParams: Promise<{ week?: string }>;
+  searchParams: Promise<{ week?: string; warning?: string }>;
 }) {
   const session = await requireSession();
-  const { week } = await searchParams;
+  const { week, warning } = await searchParams;
 
   const monday = startOfWeek(week ? new Date(`${week}T00:00:00.000Z`) : new Date());
   const days = weekDates(monday);
@@ -60,6 +60,12 @@ export default async function SchedulePage({
           </Link>
         </div>
       </div>
+
+      {warning && (
+        <div className="text-sm bg-amber-50 border border-amber-200 text-amber-800 rounded-md px-4 py-3">
+          {warning}
+        </div>
+      )}
 
       {workers.length === 0 ? (
         <p className="text-slate-500 text-sm">No active workers yet.</p>

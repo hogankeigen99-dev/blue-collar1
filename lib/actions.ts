@@ -10,6 +10,13 @@ function str(formData: FormData, key: string): string | undefined {
   return typeof v === "string" && v.trim() !== "" ? v.trim() : undefined;
 }
 
+function num(formData: FormData, key: string): number | undefined {
+  const v = str(formData, key);
+  if (v === undefined) return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
+}
+
 export async function createWorker(formData: FormData) {
   await requireRole("ADMIN", "PM");
   const name = str(formData, "name");
@@ -21,6 +28,7 @@ export async function createWorker(formData: FormData) {
       role: str(formData, "role"),
       phone: str(formData, "phone"),
       email: str(formData, "email"),
+      laborRate: num(formData, "laborRate"),
     },
   });
 

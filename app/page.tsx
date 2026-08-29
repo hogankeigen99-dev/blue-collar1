@@ -1,8 +1,13 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { computeProgress, PRODUCTIVITY_STATUS_LABEL, PRODUCTIVITY_STATUS_CLASSES } from "@/lib/productivity";
+import { getAlerts, ALERT_TYPE_LABEL } from "@/lib/alerts";
 import { requireSession } from "@/lib/session";
 import { canManageJobs } from "@/lib/auth";
+
+const SEVERITY_CLASSES: Record<string, string> = {
+  critical: "bg-red-100 text-red-700",
+  warning: "bg-amber-100 text-amber-700",
+};
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +20,7 @@ const STATUS_LABEL: Record<string, string> = {
 
 export default async function DashboardPage() {
   const session = await requireSession();
-  const [jobs, workerCount, customerCount, jobCostCodes] = await Promise.all([
+  const [jobs, workerCount, customerCount, alerts] = await Promise.all([
     prisma.job.findMany({
       orderBy: { scheduledAt: "asc" },
       include: { customer: true, assignments: { include: { worker: true } } },
@@ -23,16 +28,10 @@ export default async function DashboardPage() {
     }),
     prisma.worker.count({ where: { active: true } }),
     prisma.customer.count(),
-    prisma.jobCostCode.findMany({
-      include: { costCode: true, entries: true, job: { select: { id: true, title: true } } },
-    }),
+    getAlerts(),
   ]);
 
-  const flagged = jobCostCodes
-    .map((jcc) => ({ jcc, progress: computeProgress(jcc.estimatedQty, jcc.estimatedHours, jcc.entries) }))
-    .filter(({ progress }) => progress.status === "watch" || progress.status === "over_budget")
-    .sort((a, b) => (b.progress.hoursVariancePct ?? 0) - (a.progress.hoursVariancePct ?? 0))
-    .slice(0, 5);
+  const topAlerts = alerts.slice(0, 5);
 
   const counts = await prisma.job.groupBy({
     by: ["status"],
@@ -68,26 +67,27 @@ export default async function DashboardPage() {
         <span>{customerCount} customers</span>
       </div>
 
-      {flagged.length > 0 && (
+      {topAlerts.length > 0 && (
         <div>
-          <h2 className="text-lg font-medium mb-3">Labor productivity flags</h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-medium">Exception alerts</h2>
+            <Link href="/alerts" className="text-sm text-blue-600 hover:underline">
+              View all {alerts.length} &rarr;
+            </Link>
+          </div>
           <div className="bg-white border rounded-lg divide-y">
-            {flagged.map(({ jcc, progress }) => (
+            {topAlerts.map((a, i) => (
               <Link
-                key={jcc.id}
-                href={`/jobs/${jcc.job.id}`}
+                key={`${a.jobId}-${a.type}-${i}`}
+                href={`/jobs/${a.jobId}`}
                 className="flex items-center justify-between px-4 py-3 hover:bg-slate-50"
               >
                 <div>
-                  <div className="font-medium">{jcc.job.title}</div>
-                  <div className="text-sm text-slate-500">
-                    {jcc.costCode.code} — {jcc.costCode.description}
-                    {progress.hoursVariancePct !== null &&
-                      ` · running ${(progress.hoursVariancePct * 100).toFixed(0)}% over budgeted hrs/${jcc.costCode.unit}`}
-                  </div>
+                  <div className="font-medium">{a.jobTitle}</div>
+                  <div className="text-sm text-slate-500">{a.message}</div>
                 </div>
-                <span className={`text-xs px-2 py-1 rounded-full ${PRODUCTIVITY_STATUS_CLASSES[progress.status]}`}>
-                  {PRODUCTIVITY_STATUS_LABEL[progress.status]}
+                <span className={`text-xs px-2 py-1 rounded-full whitespace-nowrap ${SEVERITY_CLASSES[a.severity]}`}>
+                  {ALERT_TYPE_LABEL[a.type]}
                 </span>
               </Link>
             ))}

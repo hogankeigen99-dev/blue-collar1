@@ -30,6 +30,9 @@ export default async function RootLayout({
                   <Link href="/jobs" className="text-sm text-slate-600 hover:text-slate-900">
                     Jobs
                   </Link>
+                  <Link href="/alerts" className="text-sm text-slate-600 hover:text-slate-900">
+                    Alerts
+                  </Link>
                   <Link href="/schedule" className="text-sm text-slate-600 hover:text-slate-900">
                     Schedule
                   </Link>

@@ -16,13 +16,17 @@ export default async function AssignSchedulePage({
   const { workerId, date } = await params;
   const { week } = await searchParams;
 
-  const [worker, jobs, existing] = await Promise.all([
+  const [worker, jobs, existing, unavailable] = await Promise.all([
     prisma.worker.findUnique({ where: { id: workerId } }),
     prisma.job.findMany({
       where: { status: { in: ["SCHEDULED", "IN_PROGRESS"] } },
       orderBy: { title: "asc" },
     }),
     prisma.scheduleAssignment.findUnique({
+      where: { workerId_date: { workerId, date: parseDateKey(date) } },
+      include: { job: { select: { title: true } } },
+    }),
+    prisma.workerUnavailability.findUnique({
       where: { workerId_date: { workerId, date: parseDateKey(date) } },
     }),
   ]);
@@ -41,6 +45,18 @@ export default async function AssignSchedulePage({
           {worker.name} — {new Date(`${date}T00:00:00.000Z`).toLocaleDateString("en-US", { timeZone: "UTC", weekday: "long", month: "long", day: "numeric" })}
         </h1>
       </div>
+
+      {unavailable && (
+        <div className="text-sm bg-amber-50 border border-amber-200 text-amber-800 rounded-md px-4 py-3">
+          {worker.name} is marked unavailable this day{unavailable.reason ? ` (${unavailable.reason})` : ""}.
+          You can still assign them — this is a heads-up, not a block.
+        </div>
+      )}
+      {existing && (
+        <p className="text-sm text-slate-500">
+          Currently assigned to <span className="font-medium">{existing.job.title}</span>.
+        </p>
+      )}
 
       <form action={setScheduleAssignment} className="space-y-4 bg-white border rounded-lg p-6">
         <input type="hidden" name="workerId" value={worker.id} />
@@ -61,6 +77,12 @@ export default async function AssignSchedulePage({
               </option>
             ))}
           </select>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1">Through date (optional)</label>
+          <p className="text-xs text-slate-500 mb-1">Leave blank to assign just this one day.</p>
+          <input name="throughDate" type="date" min={date} className="w-full border rounded-md px-3 py-2 text-sm" />
         </div>
 
         <button

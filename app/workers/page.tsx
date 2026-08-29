@@ -30,13 +30,13 @@ export default async function WorkersPage() {
       ) : (
         <div className="bg-white border rounded-lg divide-y">
           {workers.map((w) => (
-            <div key={w.id} className="px-4 py-3">
+            <Link key={w.id} href={`/workers/${w.id}`} className="block px-4 py-3 hover:bg-slate-50">
               <div className="font-medium">{w.name}</div>
               <div className="text-sm text-slate-500">
                 {[w.role, w.phone, w.email].filter(Boolean).join(" · ") || "—"}
                 {!w.active && " · inactive"}
               </div>
-            </div>
+            </Link>
           ))}
         </div>
       )}

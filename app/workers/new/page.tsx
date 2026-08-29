@@ -28,6 +28,11 @@ export default async function NewWorkerPage() {
           <label className="block text-sm font-medium mb-1">Email</label>
           <input name="email" type="email" className="w-full border rounded-md px-3 py-2 text-sm" />
         </div>
+        <div>
+          <label className="block text-sm font-medium mb-1">Labor rate ($/hr)</label>
+          <p className="text-xs text-slate-500 mb-1">Used to price actual labor cost from logged production hours.</p>
+          <input name="laborRate" type="number" step="any" min="0" className="w-full border rounded-md px-3 py-2 text-sm" />
+        </div>
         <button
           type="submit"
           className="bg-slate-900 text-white text-sm px-4 py-2 rounded-md hover:bg-slate-700"

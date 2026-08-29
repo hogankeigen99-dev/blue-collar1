@@ -25,9 +25,19 @@ same-day instead of on the next payroll cycle.
 - **Customers**: add customer records with address/contact info
 - **Crew schedule** (`/schedule`): a weekly grid — workers as rows, days as
   columns — showing which job each crew member is on. One worker can only be
-  on one job per day, so a dispatcher can't accidentally double-book a crew
-  across concurrent jobs the way a whiteboard or spreadsheet lets happen.
-- **Dashboard**: job counts by status, upcoming/recent jobs, labor productivity flags
+  on one job per day (DB-enforced), so a dispatcher can't accidentally
+  double-book a crew across concurrent jobs the way a whiteboard or
+  spreadsheet lets happen. Assigning supports a multi-day range in one save,
+  and warns (without blocking) when a worker is marked unavailable that day
+  or when the change displaces them from a different job.
+- **Worker availability** (`/workers/[id]`): mark a worker unavailable for a
+  date (PTO, sick, other commitment) — checked by the scheduler above — and
+  see their upcoming schedule and labor rate.
+- **Exception alerts** (`/alerts`, and the top 5 on the dashboard): a live
+  scan across every job for labor overruns, schedule risk, missing field
+  reports, material risk, crew conflicts, unapproved change work, billing
+  blockers, and margin risk — grouped by severity, each linking to its job.
+- **Dashboard**: job counts by status, upcoming/recent jobs, top exception alerts
 - **Cost codes & labor productivity**: the field-to-cost-to-estimate loop for
   self-perform crews:
   - **Cost codes** — a master list (code, description, unit of measure) shared
@@ -77,13 +87,10 @@ same-day instead of on the next payroll cycle.
   no missing costs — so "ready to invoice" is a real answer, not a guess.
 
 Not in scope for this MVP: invoicing/payments themselves (billing readiness
-tells you *when*, not how to generate the invoice), notifications, and
-estimate imports from external takeoff/estimating software (cost-code budget
-lines can be CSV-imported, but full estimate line items are entered directly).
-Exception alerts (labor overruns, schedule risk, material risk, margin risk,
-etc.) and crew-scheduling upgrades (availability, multi-day assignment,
-conflict warnings) are built at the data/logic layer (`lib/alerts.ts`) but not
-yet wired into a dedicated screen — see the next section of ongoing work.
+tells you *when*, not how to generate the invoice), notifications (alerts are
+pull, not push — no email/SMS yet), and estimate imports from external
+takeoff/estimating software (cost-code budget lines can be CSV-imported, but
+full estimate line items are entered directly).
 
 ## Local development
 
@@ -160,14 +167,18 @@ environment (matching its runtime, so no `binaryTargets` override is needed).
 ## Project structure
 
 ```
-app/                          Next.js App Router pages (dashboard, jobs + command center + daily reports/materials/change orders, equipment, workers, customers, cost codes, schedule, login)
+app/                          Next.js App Router pages — dashboard, alerts, jobs (+ command center,
+                               daily reports, materials, change orders), equipment, workers
+                               (+ availability), customers, cost codes, schedule, login
 proxy.ts                      Route protection — redirects signed-out requests to /login
 lib/prisma.ts                 Shared Prisma client
 lib/actions.ts                 Server Actions for jobs/workers/customers
 lib/productivity.ts            Variance/status calc + historical productivity query
 lib/productivity-actions.ts    Server Actions for cost codes/budget lines/production entries/CSV import
 lib/schedule.ts                Week/date helpers + per-job color coding for the schedule grid
-lib/schedule-actions.ts        Server Action to assign/unassign a worker's day
+lib/schedule-actions.ts        Server Action to assign a worker's day (or a multi-day range),
+                                warning on unavailability/displacement without blocking
+lib/availability-actions.ts    Server Actions to mark/clear a worker's unavailable dates
 lib/auth.ts                    Session token signing/verification (Web Crypto — Edge-runtime safe)
 lib/password.ts                Password hashing (Node crypto — server-actions/seed only)
 lib/auth-actions.ts            Login/logout Server Actions
@@ -175,7 +186,7 @@ lib/session.ts                 getSession/requireSession/requireRole/requirePage
 lib/csv.ts                     Small CSV parser for the budget-line importer
 lib/job-costing.ts              Estimated/committed/actual/projected cost rollup per job
 lib/billing.ts                  Billing-readiness checklist computation
-lib/alerts.ts                   Exception-alert scan across all jobs (not yet on a dedicated screen)
+lib/alerts.ts                   Exception-alert scan across all jobs, surfaced on /alerts + dashboard
 lib/format.ts                   Shared money/date formatting + stage/category labels
 lib/command-center-actions.ts   Server Actions for job command-center fields + category budgets
 lib/daily-report-actions.ts     Server Action for daily field reports (with photo upload)
@@ -185,7 +196,7 @@ lib/change-order-actions.ts     Server Actions for change orders
 lib/subcontractor-actions.ts    Server Actions for subcontractor costs
 app/api/photos/[id]/route.ts    Serves daily-report photo bytes (stored in Postgres)
 prisma/schema.prisma  Data model
-prisma/seed.ts        Sample data, demo login accounts, and a labor-productivity demo scenario
+prisma/seed.ts        Sample data, demo login accounts, and a full job-costing/field-ops demo scenario
 railway.json          Railway build/deploy config
 .github/workflows/    CI
 ```
