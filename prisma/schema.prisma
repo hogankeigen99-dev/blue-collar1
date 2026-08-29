@@ -103,6 +103,7 @@ model Worker {
   foremanForJobs      Job[]                  @relation("JobForeman")
   unavailability      WorkerUnavailability[]
   checklistItemsDone  JobChecklistItem[]
+  documentsUploaded   Document[]
 }
 
 // A day a worker is marked unavailable (PTO, sick, other commitment) — checked
@@ -179,6 +180,7 @@ model Job {
   subcontractorCosts   SubcontractorCost[]
   invoices             Invoice[]
   checklistItems       JobChecklistItem[]
+  documents            Document[]
 }
 
 // A real invoice record — "billed to date" is computed as the sum of SENT
@@ -459,4 +461,37 @@ model JobChecklistItem {
   createdAt DateTime     @default(now())
 
   @@index([jobId, stage])
+}
+
+enum DocumentCategory {
+  DRAWING
+  CONTRACT
+  RFI
+  SUBMITTAL
+  PHOTO
+  SAFETY
+  CLOSEOUT
+  WARRANTY
+  OTHER
+}
+
+// Drawings, contracts, RFIs, submittals, field photos, safety docs, closeout
+// files, warranties — every job-specific document living against the project
+// record instead of scattered across email and shared drives. Stored as
+// Postgres blobs for MVP simplicity, same caveat as DailyReportPhoto: fine at
+// this scale, a real object store (S3/R2) is the right move before heavy volume.
+model Document {
+  id           String           @id @default(cuid())
+  job          Job              @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  jobId        String
+  category     DocumentCategory
+  title        String
+  data         Bytes
+  contentType  String
+  fileSize     Int
+  uploadedBy   Worker?          @relation(fields: [uploadedById], references: [id])
+  uploadedById String?
+  createdAt    DateTime         @default(now())
+
+  @@index([jobId, category])
 }

@@ -104,6 +104,11 @@ same-day instead of on the next payroll cycle.
   closeout" chain already live: exception alerts are the automated overrun/
   risk detection, and billing readiness is the automated "is the billing
   package ready" check.
+- **Documents** (`/jobs/[id]/documents`): drawings, contracts, RFIs,
+  submittals, field photos, safety docs, closeout files, and warranties,
+  categorized and living against the job record — any signed-in role can
+  upload (a foreman shouldn't need a PM to attach a safety doc), PM/ADMIN
+  can delete.
 
 Not in scope for this MVP: invoicing/payments themselves (billing readiness
 tells you *when*, not how to generate the invoice), notifications (alerts are
