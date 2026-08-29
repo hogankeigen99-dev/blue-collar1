@@ -159,12 +159,15 @@ pull, not push — no email/SMS yet), and estimate imports from external
 takeoff/estimating software (cost-code budget lines can be CSV-imported, but
 full estimate line items are entered directly).
 
-**Deliberately not built, and why**: DB backup/recovery was explicitly
-requested but is out of scope for this pass — it's an infrastructure
-concern, not application code. Most managed Postgres providers (including
-Railway) already offer automated backups/point-in-time recovery; turn that
-on at the provider rather than trusting an in-app "backup now" button that
-can't actually guarantee consistency the way a real WAL-based backup does.
+- **Backup & recovery**: `npm run db:backup` / `npm run db:restore`
+  (`scripts/backup.sh` / `scripts/restore.sh`) — a real, round-trip-tested
+  `pg_dump`/`pg_restore` plan, not an in-app "backup now" button pretending
+  to guarantee consistency it can't. Full runbook, RPO/RTO, retention, and
+  scheduling (Railway cron or GitHub Actions) in
+  [`docs/BACKUP_RECOVERY.md`](docs/BACKUP_RECOVERY.md) — including what it
+  deliberately doesn't cover (point-in-time recovery needs your Postgres
+  provider's own continuous-WAL feature; this is the portable secondary
+  copy on top of that, not a replacement for it).
 
 ## Local development
 

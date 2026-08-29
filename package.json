@@ -10,7 +10,9 @@
     "postinstall": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
-    "db:seed": "tsx prisma/seed.ts"
+    "db:seed": "tsx prisma/seed.ts",
+    "db:backup": "bash scripts/backup.sh",
+    "db:restore": "bash scripts/restore.sh"
   },
   "dependencies": {
     "@prisma/client": "^5.20.0",
