@@ -4,21 +4,50 @@ Before Company Operating Core V1 added any company-wide view, every major
 business concept in the app was audited here: where it's actually stored,
 who's allowed to create/change it, everything downstream that reads it, and
 whether it's live data or an intentional point-in-time snapshot. This is
-what let the Company Command Center, Portfolio, Financials, Resources, and
-Field views get built as **read layers over existing records** — nothing
-in this document produces a new number that didn't already have exactly
-one home.
+what let the Company Command Center, Portfolio, Financials, Resources,
+Field, and Pipeline views get built as **read layers over existing
+records** — nothing in this document produces a new number that didn't
+already have exactly one home.
 
 Keep this current. When a new business concept gets a home, add it here in
 the same shape before wiring a second consumer to it.
 
 ---
 
+### Opportunity (the bid pipeline)
+
+- **Source of truth:** `Opportunity` (`prisma/schema.prisma`) — the front
+  door, before there's a real project. Deliberately a separate, lightweight
+  entity from `Job`, not an early project stage: a healthy GC loses more
+  bids than it wins, and every lost one would otherwise burn a `jobNumber`
+  and a Command Center for a project that never happened.
+- **Created by:** `lib/opportunity-actions.ts` (`createOpportunity`).
+  `OpportunityCostCode` (the pre-award estimate lines) is deliberately
+  parallel to `JobCostCode`, not a shared table — `JobCostCode`'s shape and
+  every query built on it already assumes a real, awarded `Job`.
+- **Updated by:** `updateOpportunity` (fields; stage only moves within
+  `OPPORTUNITY`/`BIDDING`/`SUBMITTED` there), `markOpportunityLost` (stage
+  → `LOST`/`NO_BID`), or `awardProject` (stage → `WON`, `wonJobId` set) —
+  each stage transition has exactly one place it happens, the same rule
+  `Job.stage` follows.
+- **Consumed by:** the Pipeline (`/opportunities`), win-rate reporting
+  (`lib/opportunities.ts`'s `getWinRateReport` — Historical Intelligence),
+  Company Command's pipeline tile, global search.
+- **Live or snapshot:** live while open; a decided (`WON`/`LOST`/`NO_BID`)
+  opportunity's own fields stop changing but it stays queryable forever —
+  win-rate history must never shrink just because a bid is old.
+- **Finding:** the moment it's `WON`, an opportunity's title/customer/
+  estimated value/project type/bid lines flow into the *existing* Award
+  form (`app/jobs/new/page.tsx`'s `?opportunityId=` prefill) instead of a
+  second job-creation code path — `awardProject` is still the only place a
+  `Job` is ever created, exactly as it already was documented below.
+
 ### Project
 
 - **Source of truth:** `Job` (`prisma/schema.prisma`).
 - **Created by:** `lib/award-actions.ts` (`awardProject`) — the one-pass
-  Award flow. No other path creates a `Job`.
+  Award flow, whether reached directly or via a won Opportunity. No other
+  path creates a `Job`.
 - **Updated by:** `lib/command-center-actions.ts` (`updateJobCommandCenter`)
   — contract value, PM, foreman, division, dates, stage, project type,
   punch-list/docs flags. All other job-adjacent writes (materials, change
@@ -242,7 +271,16 @@ reading it.
 
 Everything else in this document was already a single source of truth
 with a clean read path. **No other new tables were added** to build the
-Company Operating Core — every company-wide view in this phase is a new
+Company Operating Core — every company-wide view in that phase is a new
 *query* over data that already had exactly one home, following the same
 shape `getJobCosting`/`getProjectHealth`/`getAlerts` already established
 per job, scaled to the whole company.
+
+**Pipeline phase (Opportunity → Bid → Estimate → Award):** two new tables
+this time, `Opportunity` and `OpportunityCostCode` — a genuinely new
+business concept (what's being chased before it's a real project), not a
+duplicate of anything above. Both are documented in full under
+§ Opportunity. The win here is the same shape as `Worker.userId`: the
+Award form already existed, so a won opportunity's data flows into it
+through the same `?opportunityId=` prefill rather than a second
+job-creation path.

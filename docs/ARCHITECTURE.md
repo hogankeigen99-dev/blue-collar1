@@ -601,11 +601,21 @@ Ordered by real dependency, not by section number — Billing needs
 Contract, Cash needs Billing, Executive Command needs everything.
 
 ### Phase 1 — Front door: Lead/Bid + Contract
-`Lead`, `LeadEstimateLine`, win/loss conversion into `Job`+`JobCostCode`,
-`Contract`/`ContractLine` replacing the flat `contractValue`. This is the
-biggest actual gap today — the app currently starts mid-story at Award,
-with no record of what was bid or lost. Everything else in this design
-depends on Contract existing.
+
+**Lead/Bid half: built.** Shipped as `Opportunity`/`OpportunityCostCode`
+(named "Opportunity" rather than "Lead" — the same design this section
+proposed, renamed to match how the work was actually requested) —
+win/loss tracking, bid lines with the same historical-rate panel as a
+real budget line, and win/loss conversion into `Job`+`JobCostCode` via
+the existing Award form's `?opportunityId=` prefill rather than a second
+creation path. See `docs/OPERATING-DATA-MODEL.md`'s § Opportunity and the
+README's "Company Operating Core" section for what's live.
+
+**`Contract`/`ContractLine` half: still not built.** `Job.contractValue`
+remains the flat field it always was — a real Schedule of Values is still
+the right eventual home for contract type/retainage/SOV-based billing
+(§3.4), and Billing/Cash (Phase 2) still depend on it existing first. Not
+reopened this phase; still next.
 
 ### Phase 2 — Money in/out: Procurement formalization + Billing + Cash
 `Vendor`, `Subcontract`, `SubBid`; `InvoiceLine`/SOV-based progress

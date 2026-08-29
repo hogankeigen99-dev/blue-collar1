@@ -29,7 +29,9 @@ accounting.
   project's date range (`ScheduleAssignment` rows) alongside their formal
   job assignment — so the crew and the schedule board start in sync instead
   of being entered twice and drifting apart (the gap the `CREW_CONFLICT`
-  alert exists to catch).
+  alert exists to catch). Reached directly, or pre-filled from a won
+  opportunity (`/jobs/new?opportunityId=…` — see "Company Operating Core"
+  below) — same form, same one submit, either way.
 - **The job Command Center is the single operational home**
   (`/jobs/[id]`, data from `lib/project-health.ts`): project number,
   customer, location, contract value, PM, foreman, crew, current stage,
@@ -114,6 +116,23 @@ Command Center are never two different calculations of the same thing.
   across every open job, and every tile links to where that sum came from.
   A FOREMAN account lands on `/field` instead — this page is a leadership
   view, not their home.
+- **Pipeline** (`/opportunities`, `lib/opportunities.ts`) — Opportunity →
+  Bid → Estimate → Award: what's out to bid, before it's a real project. An
+  `Opportunity` is deliberately a separate, lightweight entity from `Job`
+  (a healthy GC loses more bids than it wins, and every lost one would
+  otherwise burn a `jobNumber` and a Command Center for a project that
+  never happened); `OpportunityCostCode` bid lines get the exact same
+  historical company/recent/recommended rate panel the Award form already
+  shows for a real job. Winning it doesn't create a second job-creation
+  code path — it opens `/jobs/new?opportunityId=…`, which prefills title,
+  customer, contract value, project type, and every bid line into the same
+  Award form every other project goes through; the opportunity is marked
+  `WON` and linked to the resulting `Job` only once that Award actually
+  submits, so an abandoned tab never falsely wins a bid. A loss (`LOST` or
+  a deliberate `NO_BID`) stays queryable forever — win-rate reporting (by
+  project type and by estimator/PM, on the pipeline page and as a
+  Company Command tile) reads every decided bid a company has ever
+  recorded, not a rolling window.
 - **Project Portfolio** (`/projects`, `lib/portfolio.ts`) — one row per
   project, filterable by PM/foreman/project type/stage/risk, sortable, with
   the same columns the Command Center already computes per job (schedule %,
@@ -148,15 +167,15 @@ Command Center are never two different calculations of the same thing.
   previously unconnected, so this is genuine new plumbing, not a new
   abstraction), not a guess or a generic list.
 - **Global search** (`/search`, `lib/search.ts`) — one search box (in the
-  nav for ADMIN/PM) across projects, project numbers, customers, workers,
-  cost codes, change orders, material requests, equipment, and document
-  titles. Plain case-insensitive `contains` queries against existing
-  tables — no external search infrastructure.
+  nav for ADMIN/PM) across projects, opportunities, project/bid numbers,
+  customers, workers, cost codes, change orders, material requests,
+  equipment, and document titles. Plain case-insensitive `contains`
+  queries against existing tables — no external search infrastructure.
 - **Navigation is organized around how the company works, not the data
-  model** — Command, Action Center, Projects, Field, Schedule, Financials,
-  Estimating, Company (a hub for Resources/Workers/Customers/Equipment/
-  Divisions), Settings, instead of one top-level link per model. FOREMAN
-  gets a deliberately short nav (Today, Schedule, sign out) — no
+  model** — Command, Pipeline, Action Center, Projects, Field, Schedule,
+  Financials, Estimating, Company (a hub for Resources/Workers/Customers/
+  Equipment/Divisions), Settings, instead of one top-level link per model.
+  FOREMAN gets a deliberately short nav (Today, Schedule, sign out) — no
   executive/accounting/estimating complexity a foreman doesn't need.
 - **Role-aware, not role-forked**: every view above reads the same company/
   project records regardless of who's looking — there's no separate
@@ -179,6 +198,14 @@ value matches; and — the two things this phase is only real if both
 hold — a foreman's daily report ripples into the company-wide labor-hours
 total with no second entry anywhere, and completing a job's stage removes
 it from Company Command with no separate "archive from dashboard" step.
+The Pipeline gets its own suite too
+(`tests/e2e/opportunity-pipeline.spec.ts`): the seeded win rate computes
+correctly; a new bid line shows the same historical-rate panel live; a
+loss removes an opportunity from the open pipeline while keeping it in
+full history; and — the one this phase is only real if it holds — winning
+an opportunity prefills the real Award form with its title, contract
+value, and every bid line, and the resulting Job carries those cost codes
+through with no re-entry.
 
 ## Stack
 
@@ -632,15 +659,31 @@ app/projects/                   Project Portfolio
 app/financials/                 Company Financials
 app/field/                      Field activity feed / Foreman home
 app/search/                     Global search
+
+--- The bid pipeline (Opportunity -> Bid -> Estimate -> Award) ---
+lib/opportunity-number.ts       Next "{year}-B{seq}" bid number -- a separate sequence from
+                                 jobNumber so a lost bid never consumes or gaps a real one
+lib/opportunity-actions.ts      Server Actions: createOpportunity, updateOpportunity,
+                                 addOpportunityCostCode, markOpportunityLost -- WON is set by
+                                 awardProject instead (lib/award-actions.ts), not a separate action
+lib/opportunities.ts            Pipeline list, single-opportunity detail, and getWinRateReport
+                                 (by project type / by estimator -- Historical Intelligence)
+app/opportunities/              Pipeline list, new-opportunity form, and the bid workspace (bid
+                                 lines with the same historical-rate panel the Award form uses,
+                                 Mark Won -> /jobs/new?opportunityId=, Mark Lost/No-bid)
+app/jobs/[id]/cost-codes/new/budget-line-fields.tsx  Reused as-is by
+                                 app/opportunities/[id]/cost-codes/new/ -- one historical-rate
+                                 component, two forms that post to different Server Actions
 prisma/schema.prisma  Data model
 prisma/seed.ts        Sample data, demo login accounts, seven simultaneous active/completed
                        projects each demonstrating one condition cleanly for the Company Command
                        Center (healthy, labor risk, schedule risk, material risk, change-work
-                       exposure, billing-ready, and historical-intelligence-feeding), plus the
-                       small-crew-project and estimate/actual-loop demo scenarios from earlier
-                       phases
+                       exposure, billing-ready, and historical-intelligence-feeding), a bid
+                       pipeline (two wins each converted to a real Job, two losses and a no-bid
+                       with reasons, two still-open bids), plus the small-crew-project and
+                       estimate/actual-loop demo scenarios from earlier phases
 docs/ARCHITECTURE.md            Full company-lifecycle design (Lead/Bid through Executive Command)
-                                 this phase's build is the first slice of
+                                 -- the Opportunity pipeline is that design's Phase 1, now built
 docs/OPERATING-DATA-MODEL.md    Source-of-truth audit for every major business concept -- what
                                  this phase's company-wide views were built against
 tests/e2e/             Playwright E2E suite (npm run test:e2e) -- small-crew-project workflow,

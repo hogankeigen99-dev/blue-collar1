@@ -1331,6 +1331,178 @@ async function main() {
   });
   await prisma.scheduleAssignment.create({ data: { workerId: wanda.id, jobId: fairview.id, date: today } });
 
+  // --- The bid pipeline (Opportunity -> Bid -> Estimate -> Award) — two
+  // wins (each actually converted into a real Job, the same way the Award
+  // form's ?opportunityId= prefill does it), two losses and a no-bid with
+  // reasons (so win-rate reporting has real decided bids to compute from),
+  // and two still-open bids (one with a cost-code line, to show the
+  // historical-rate panel live on a bid before it's even submitted). ---
+
+  const wonHarborSitework = await prisma.opportunity.create({
+    data: {
+      companyId: company.id,
+      bidNumber: `${SEED_YEAR}-B001`,
+      title: "Harbor View Corporate Campus — Sitework Package",
+      customerId: harborView.id,
+      source: "Repeat client",
+      projectType: "Site work",
+      estimatedValue: 340000,
+      probability: 80,
+      bidDueDate: addDays(today, -20),
+      assignedToUserId: priya.id,
+      stage: "WON",
+    },
+  });
+  await prisma.opportunityCostCode.create({
+    data: { opportunityId: wonHarborSitework.id, costCodeId: excavation.id, estimatedQty: 500, estimatedHours: 365 },
+  });
+  const harborSiteworkJob = await prisma.job.create({
+    data: {
+      companyId: company.id,
+      divisionId: fieldOps.id,
+      jobNumber: `${SEED_YEAR}-013`,
+      title: wonHarborSitework.title,
+      address: harborView.address,
+      status: "SCHEDULED",
+      projectType: "Site work",
+      customerId: harborView.id,
+      contractValue: 340000,
+      pmUserId: priya.id,
+      targetStartDate: addDays(today, 10),
+      targetEndDate: addDays(today, 55),
+      stage: "PRECON",
+    },
+  });
+  await prisma.jobCostCode.create({
+    data: { jobId: harborSiteworkJob.id, costCodeId: excavation.id, estimatedQty: 500, estimatedHours: 365 },
+  });
+  await generateChecklistForStage(prisma, harborSiteworkJob.id, "PRECON");
+  await prisma.opportunity.update({
+    where: { id: wonHarborSitework.id },
+    data: { wonJobId: harborSiteworkJob.id },
+  });
+
+  const wonFairviewFlooring = await prisma.opportunity.create({
+    data: {
+      companyId: company.id,
+      bidNumber: `${SEED_YEAR}-B002`,
+      title: "Fairview District — Gym Floor Replacement",
+      customerId: fairviewDistrict.id,
+      source: "Repeat client",
+      projectType: "Flooring",
+      estimatedValue: 52000,
+      probability: 75,
+      bidDueDate: addDays(today, -8),
+      assignedToUserId: priya.id,
+      stage: "WON",
+    },
+  });
+  const fairviewFlooringJob = await prisma.job.create({
+    data: {
+      companyId: company.id,
+      divisionId: fieldOps.id,
+      jobNumber: `${SEED_YEAR}-014`,
+      title: wonFairviewFlooring.title,
+      address: fairviewDistrict.address,
+      status: "SCHEDULED",
+      projectType: "Flooring",
+      customerId: fairviewDistrict.id,
+      contractValue: 52000,
+      pmUserId: priya.id,
+      targetStartDate: addDays(today, 25),
+      targetEndDate: addDays(today, 35),
+      stage: "PRECON",
+    },
+  });
+  await generateChecklistForStage(prisma, fairviewFlooringJob.id, "PRECON");
+  await prisma.opportunity.update({
+    where: { id: wonFairviewFlooring.id },
+    data: { wonJobId: fairviewFlooringJob.id },
+  });
+
+  await prisma.opportunity.create({
+    data: {
+      companyId: company.id,
+      bidNumber: `${SEED_YEAR}-B003`,
+      title: "Bayside Development — Phase 2 Retail Pad",
+      customerId: baysideDevelopment.id,
+      source: "Plan room",
+      projectType: "Site work",
+      estimatedValue: 280000,
+      probability: 40,
+      bidDueDate: addDays(today, -15),
+      assignedToUserId: priya.id,
+      stage: "LOST",
+      lostReason: "Price — lost to a lower bidder",
+    },
+  });
+  await prisma.opportunity.create({
+    data: {
+      companyId: company.id,
+      bidNumber: `${SEED_YEAR}-B004`,
+      title: "Oakridge Medical — Expansion Wing",
+      customerId: oakridgeMedical.id,
+      source: "Referral",
+      projectType: "Commercial TI",
+      estimatedValue: 410000,
+      probability: 35,
+      bidDueDate: addDays(today, -12),
+      assignedToUserId: priya.id,
+      stage: "LOST",
+      lostReason: "Schedule — couldn't meet their required timeline",
+    },
+  });
+  await prisma.opportunity.create({
+    data: {
+      companyId: company.id,
+      bidNumber: `${SEED_YEAR}-B005`,
+      title: "Downtown Parking Structure — Concrete Package",
+      prospectName: "Metro Development Group",
+      source: "Plan room",
+      projectType: "Commercial concrete",
+      estimatedValue: 1200000,
+      bidDueDate: addDays(today, -5),
+      assignedToUserId: priya.id,
+      stage: "NO_BID",
+      lostReason: "Outside our current bonding capacity",
+    },
+  });
+
+  const openCoveStreet = await prisma.opportunity.create({
+    data: {
+      companyId: company.id,
+      bidNumber: `${SEED_YEAR}-B006`,
+      title: "Cove Street Duplex — Foundation & Framing",
+      prospectName: "New prospect — plan room lead",
+      source: "Plan room",
+      projectType: "Foundation pour",
+      estimatedValue: 145000,
+      probability: 55,
+      bidDueDate: addDays(today, 10),
+      assignedToUserId: priya.id,
+      stage: "BIDDING",
+    },
+  });
+  await prisma.opportunityCostCode.create({
+    data: { opportunityId: openCoveStreet.id, costCodeId: concreteSlab.id, estimatedQty: 180, estimatedHours: 155 },
+  });
+
+  await prisma.opportunity.create({
+    data: {
+      companyId: company.id,
+      bidNumber: `${SEED_YEAR}-B007`,
+      title: "Elm Terrace — Site Utilities",
+      prospectName: "Referral from Harbor View Development",
+      source: "Referral",
+      projectType: "Site work",
+      estimatedValue: 88000,
+      probability: 60,
+      bidDueDate: addDays(today, 3),
+      assignedToUserId: priya.id,
+      stage: "SUBMITTED",
+    },
+  });
+
   // --- A second, unrelated company — proves cross-tenant isolation works,
   // not just that a companyId column exists. Its admin should never be able
   // to see any of the CrewSync Demo GC data seeded above, and vice versa. ---

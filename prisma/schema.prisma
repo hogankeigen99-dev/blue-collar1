@@ -117,6 +117,7 @@ model Company {
   auditLogs              AuditLog[]
   ssoConfig              SsoConfig?
   integrationCredentials IntegrationCredential[]
+  opportunities          Opportunity[]
 }
 
 // Organizational segmentation within a company (e.g. "Concrete Division",
@@ -190,17 +191,18 @@ model WorkerUnavailability {
 // may not ever log in — a laborer with no account is still schedulable and
 // can still be recorded as who a foreman entered production for).
 model User {
-  id           String   @id @default(cuid())
-  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  companyId    String
-  name         String
-  email        String   @unique
-  passwordHash String? // null when authProvider is SSO-only
-  role         Role     @default(FOREMAN)
-  active       Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  pmForJobs    Job[]    @relation("JobPM")
-  worker       Worker?
+  id                    String        @id @default(cuid())
+  company               Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId             String
+  name                  String
+  email                 String        @unique
+  passwordHash          String? // null when authProvider is SSO-only
+  role                  Role          @default(FOREMAN)
+  active                Boolean       @default(true)
+  createdAt             DateTime      @default(now())
+  pmForJobs             Job[]         @relation("JobPM")
+  worker                Worker?
+  opportunitiesAssigned Opportunity[] @relation("OpportunityAssignee")
 
   // SSO-ready: a user authenticates either by password or by an external
   // IdP's subject claim. authProvider decides which login path validates
@@ -255,26 +257,110 @@ model IntegrationCredential {
 }
 
 model Customer {
-  id        String   @id @default(cuid())
-  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  companyId String
-  name      String
-  phone     String?
-  email     String?
-  address   String?
-  notes     String?
-  createdAt DateTime @default(now())
-  jobs      Job[]
+  id            String        @id @default(cuid())
+  company       Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId     String
+  name          String
+  phone         String?
+  email         String?
+  address       String?
+  notes         String?
+  createdAt     DateTime      @default(now())
+  jobs          Job[]
+  opportunities Opportunity[]
 
   @@index([companyId])
 }
 
+// Company-wide win rate over time, and a company's true win rate stays
+// visible even for prospects that went nowhere. WON is the only path a
+// Job gets created from an Opportunity — see lib/award-actions.ts.
+enum OpportunityStage {
+  OPPORTUNITY // qualifying — is this worth bidding at all
+  BIDDING // actively estimating
+  SUBMITTED // bid submitted, awaiting the customer's decision
+  WON
+  LOST
+  NO_BID // declined to bid — distinct from LOST (never competed for it)
+}
+
+// The front door: what the company is chasing before it's a real, awarded
+// project. Deliberately a separate, lightweight entity rather than an early
+// Job stage — a healthy GC loses more bids than it wins, and every lost one
+// would otherwise burn a jobNumber and a Command Center for a project that
+// never happened. A Job (with a real jobNumber) is only ever created on WON,
+// via the same Award flow every other project goes through
+// (lib/award-actions.ts prefills from here when ?opportunityId= is present).
+model Opportunity {
+  id        String  @id @default(cuid())
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId String
+  // "{year}-B{seq}" — a separate sequence from jobNumber (lib/opportunity-number.ts)
+  // so lost bids never consume or gap a real project number.
+  bidNumber String
+
+  title          String
+  customer       Customer? @relation(fields: [customerId], references: [id])
+  customerId     String?
+  // Free text when there's no Customer record yet — most bids don't have
+  // one until they're won.
+  prospectName   String?
+  source         String? // "Referral", "Plan room", "Repeat client", ...
+  // Same free-text convention as Job.projectType — lets win-rate reporting
+  // and the historical-rate panel filter/match by kind of work.
+  projectType    String?
+  estimatedValue Float?
+  probability    Int? // 0-100, the PM/estimator's own read, not computed
+  bidDueDate     DateTime?
+
+  stage      OpportunityStage @default(OPPORTUNITY)
+  lostReason String? // only meaningful once stage is LOST
+
+  assignedTo       User?   @relation("OpportunityAssignee", fields: [assignedToUserId], references: [id])
+  assignedToUserId String?
+
+  // Set once, on WON — the provenance link back from the Job this became.
+  wonJob   Job?    @relation("OpportunityWonJob", fields: [wonJobId], references: [id])
+  wonJobId String? @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  costCodes OpportunityCostCode[]
+
+  @@unique([companyId, bidNumber])
+  @@index([companyId])
+}
+
+// The pre-award estimate — deliberately parallel to JobCostCode, not a
+// shared table: JobCostCode's shape and every query built on it already
+// assumes a real, awarded Job (billing readiness, job costing, benchmark
+// recording). This becomes the Job's starting JobCostCode rows the moment
+// the Opportunity is marked WON, via the Award form's normal cost-code
+// submission (pre-filled, not copied by a second code path).
+model OpportunityCostCode {
+  id             String      @id @default(cuid())
+  opportunity    Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  opportunityId  String
+  costCode       CostCode    @relation(fields: [costCodeId], references: [id])
+  costCodeId     String
+  estimatedQty   Float
+  estimatedHours Float
+
+  @@unique([opportunityId, costCodeId])
+}
+
 model Job {
-  id          String    @id @default(cuid())
-  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  id          String       @id @default(cuid())
+  company     Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId   String
-  division    Division? @relation(fields: [divisionId], references: [id])
+  division    Division?    @relation(fields: [divisionId], references: [id])
   divisionId  String?
+  // Provenance: the Opportunity this Job was awarded from, when it came
+  // through the pipeline rather than a direct-negotiated/repeat-work Award.
+  // The foreign key lives on Opportunity.wonJobId (set once, on WON) — this
+  // is just the reverse side of that same relation, not a second FK.
+  opportunity Opportunity? @relation("OpportunityWonJob")
   // Human-readable project number ("2026-014") — the PM-facing identifier
   // instead of the opaque cuid. Auto-generated at award time
   // (lib/award-actions.ts): current year + next sequence for that
@@ -284,12 +370,12 @@ model Job {
   jobNumber   String
   title       String
   description String?
-  status      JobStatus @default(SCHEDULED)
+  status      JobStatus    @default(SCHEDULED)
   address     String?
   scheduledAt DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  customer    Customer? @relation(fields: [customerId], references: [id])
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  customer    Customer?    @relation(fields: [customerId], references: [id])
   customerId  String?
 
   // Command Center fields
@@ -357,16 +443,17 @@ model JobAssignment {
 // (actual hrs/unit) is derived from ProductionEntry rows across every job
 // that has ever used this code, not stored redundantly here.
 model CostCode {
-  id           String              @id @default(cuid())
-  company      Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  companyId    String
-  code         String
-  description  String
-  unit         UnitOfMeasure
-  glCode       String? // maps this cost code to the accounting system's GL/cost code for export
-  createdAt    DateTime            @default(now())
-  jobCostCodes JobCostCode[]
-  benchmarks   CostCodeBenchmark[]
+  id                   String                @id @default(cuid())
+  company              Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId            String
+  code                 String
+  description          String
+  unit                 UnitOfMeasure
+  glCode               String? // maps this cost code to the accounting system's GL/cost code for export
+  createdAt            DateTime              @default(now())
+  jobCostCodes         JobCostCode[]
+  benchmarks           CostCodeBenchmark[]
+  opportunityCostCodes OpportunityCostCode[]
 
   @@unique([companyId, code])
   @@index([companyId])

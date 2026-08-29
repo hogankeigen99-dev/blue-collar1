@@ -17,6 +17,15 @@ export const PROJECT_STAGE_LABEL: Record<string, string> = {
   COMPLETE: "Complete",
 };
 
+export const OPPORTUNITY_STAGE_LABEL: Record<string, string> = {
+  OPPORTUNITY: "Qualifying",
+  BIDDING: "Bidding",
+  SUBMITTED: "Submitted",
+  WON: "Won",
+  LOST: "Lost",
+  NO_BID: "No bid",
+};
+
 export const COST_CATEGORY_LABEL: Record<string, string> = {
   LABOR: "Labor",
   MATERIAL: "Material",

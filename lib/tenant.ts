@@ -22,6 +22,7 @@ const TENANT_MODELS = new Set([
   "ChecklistTemplateItem",
   "AuditLog",
   "Division",
+  "Opportunity",
 ]);
 
 const READ_OPS = new Set(["findFirst", "findFirstOrThrow", "findMany", "count", "aggregate", "groupBy"]);

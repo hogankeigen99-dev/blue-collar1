@@ -71,6 +71,21 @@ export default async function CompanyCommandCenter() {
         </p>
       </div>
 
+      {/* Pipeline */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-medium">Pipeline</h2>
+          <Link href="/opportunities" className="text-sm text-blue-600 hover:underline">
+            Full pipeline →
+          </Link>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <StatTile label="Open opportunities" value={String(cmd.pipelineOpenCount)} href="/opportunities" />
+          <StatTile label="Pipeline value" value={formatMoney(cmd.pipelineValue)} href="/opportunities" />
+          <StatTile label="Win rate" value={pct(cmd.pipelineWinRatePct)} href="/opportunities" />
+        </div>
+      </div>
+
       {/* Active operations */}
       <div className="space-y-3">
         <h2 className="text-lg font-medium">Active operations</h2>

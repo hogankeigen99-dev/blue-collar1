@@ -87,6 +87,18 @@ export async function awardProject(formData: FormData) {
     new Set([...strArr(formData, "workerIds"), ...(foremanWorkerId ? [foremanWorkerId] : [])])
   );
 
+  // Won from the pipeline (app/jobs/new/page.tsx's ?opportunityId= prefill)
+  // — verify it's this company's and still open before converting it, so a
+  // stale tab or a double-submit can't win the same bid twice.
+  const opportunityId = str(formData, "opportunityId");
+  let opportunity = null;
+  if (opportunityId) {
+    opportunity = await prisma.opportunity.findFirstOrThrow({ where: { id: opportunityId } });
+    if (!["OPPORTUNITY", "BIDDING", "SUBMITTED"].includes(opportunity.stage)) {
+      throw new Error(`This opportunity is already ${opportunity.stage.toLowerCase()} — it can't be awarded again.`);
+    }
+  }
+
   const jobNumber = await generateNextJobNumber(prisma);
 
   const job = await prisma.job.create({
@@ -208,6 +220,23 @@ export async function awardProject(formData: FormData) {
     jobId: job.id,
     detail: `${jobNumber} — ${title}`,
   });
+
+  // Close the loop back to the pipeline: the opportunity is WON the moment
+  // its Award actually goes through, not before (a discarded Award form
+  // leaves the opportunity exactly where it was).
+  if (opportunity) {
+    await prisma.opportunity.update({
+      where: { id: opportunity.id },
+      data: { stage: "WON", wonJobId: job.id },
+    });
+    await logAudit(session, {
+      action: "opportunity.won",
+      entityType: "Opportunity",
+      entityId: opportunity.id,
+      jobId: job.id,
+      detail: `${opportunity.bidNumber} — awarded as ${jobNumber}`,
+    });
+  }
 
   revalidatePath("/jobs");
   revalidatePath("/");

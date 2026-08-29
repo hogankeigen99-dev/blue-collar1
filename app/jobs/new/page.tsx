@@ -5,10 +5,16 @@ import { getAllCostCodeRatesMap } from "@/lib/productivity-benchmarks";
 import { requirePageRole } from "@/lib/session";
 import AwardRepeatableSections from "./award-form";
 
-export default async function AwardProjectPage() {
+export default async function AwardProjectPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ opportunityId?: string }>;
+}) {
   const session = await requirePageRole("ADMIN", "PM");
   const prisma = scopedPrisma(session.companyId);
-  const [customers, workers, users, costCodes, equipment, divisions, projectTypeRows, rates] = await Promise.all([
+  const { opportunityId } = await searchParams;
+
+  const [customers, workers, users, costCodes, equipment, divisions, projectTypeRows, rates, opportunity] = await Promise.all([
     prisma.customer.findMany({ orderBy: { name: "asc" } }),
     prisma.worker.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
     prisma.user.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
@@ -17,8 +23,16 @@ export default async function AwardProjectPage() {
     prisma.division.findMany({ orderBy: { name: "asc" } }),
     prisma.job.findMany({ where: { projectType: { not: null } }, select: { projectType: true }, distinct: ["projectType"] }),
     getAllCostCodeRatesMap(session.companyId),
+    opportunityId
+      ? prisma.opportunity.findFirst({ where: { id: opportunityId }, include: { costCodes: true } })
+      : Promise.resolve(null),
   ]);
   const projectTypes = projectTypeRows.map((j) => j.projectType!).sort();
+  const initialCostCodeRows = opportunity?.costCodes.map((cc) => ({
+    costCodeId: cc.costCodeId,
+    qty: String(cc.estimatedQty),
+    hours: String(cc.estimatedHours),
+  }));
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -29,9 +43,17 @@ export default async function AwardProjectPage() {
           known materials/equipment/subcontractors — sets up the project in one pass. The crew&apos;s schedule
           and the startup checklist are generated automatically.
         </p>
+        {opportunity && (
+          <p className="text-sm bg-green-50 border border-green-200 text-green-800 rounded-md px-3 py-2 mt-3">
+            Awarding from opportunity <span className="font-medium">{opportunity.bidNumber} — {opportunity.title}</span>
+            . Title, customer, contract value, project type, and bid lines below are carried over — fill in the PM,
+            foreman, crew, and dates that weren&apos;t known at bid time.
+          </p>
+        )}
       </div>
 
       <form action={awardProject} className="space-y-8 bg-white border rounded-lg p-6">
+        {opportunity && <input type="hidden" name="opportunityId" value={opportunity.id} />}
         {/* Project & customer */}
         <div className="space-y-4">
           <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">Project</h2>
@@ -41,6 +63,7 @@ export default async function AwardProjectPage() {
               <input
                 name="title"
                 required
+                defaultValue={opportunity?.title ?? ""}
                 className="w-full border rounded-md px-3 py-2 text-sm"
                 placeholder="e.g. Oakwood Ave — Sitework and Slab"
               />
@@ -48,7 +71,7 @@ export default async function AwardProjectPage() {
 
             <div>
               <label className="block text-sm font-medium mb-1">Customer</label>
-              <select name="customerId" className="w-full border rounded-md px-3 py-2 text-sm">
+              <select name="customerId" defaultValue={opportunity?.customerId ?? ""} className="w-full border rounded-md px-3 py-2 text-sm">
                 <option value="">— New customer (name below) —</option>
                 {customers.map((c) => (
                   <option key={c.id} value={c.id}>
@@ -61,6 +84,7 @@ export default async function AwardProjectPage() {
               <label className="block text-sm font-medium mb-1">New customer name</label>
               <input
                 name="newCustomerName"
+                defaultValue={!opportunity?.customerId ? opportunity?.prospectName ?? "" : ""}
                 className="w-full border rounded-md px-3 py-2 text-sm"
                 placeholder="Only if not selected above"
               />
@@ -78,7 +102,13 @@ export default async function AwardProjectPage() {
 
             <div>
               <label className="block text-sm font-medium mb-1">Contract value ($)</label>
-              <input name="contractValue" type="number" step="any" className="w-full border rounded-md px-3 py-2 text-sm" />
+              <input
+                name="contractValue"
+                type="number"
+                step="any"
+                defaultValue={opportunity?.estimatedValue ?? ""}
+                className="w-full border rounded-md px-3 py-2 text-sm"
+              />
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">Division</label>
@@ -96,6 +126,7 @@ export default async function AwardProjectPage() {
               <input
                 name="projectType"
                 list="projectTypeOptions"
+                defaultValue={opportunity?.projectType ?? ""}
                 placeholder="e.g. Residential slab, Commercial TI, Site work"
                 className="w-full border rounded-md px-3 py-2 text-sm"
               />
@@ -186,6 +217,7 @@ export default async function AwardProjectPage() {
           costCodes={costCodes.map((cc) => ({ id: cc.id, code: cc.code, description: cc.description, unit: cc.unit }))}
           equipmentList={equipment.map((e) => ({ id: e.id, name: e.name, type: e.type }))}
           rates={rates}
+          initialCostCodeRows={initialCostCodeRows}
         />
 
         <button type="submit" className="bg-slate-900 text-white text-sm px-5 py-2.5 rounded-md hover:bg-slate-700">

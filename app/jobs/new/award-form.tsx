@@ -20,12 +20,21 @@ export default function AwardRepeatableSections({
   costCodes,
   equipmentList,
   rates,
+  initialCostCodeRows,
 }: {
   costCodes: CostCodeOption[];
   equipmentList: EquipmentOption[];
   rates: Record<string, CostCodeRates>;
+  /** Pre-fills the cost-code rows from a won Opportunity's bid lines
+   * (app/jobs/new/page.tsx, ?opportunityId=) instead of the usual single
+   * blank row — the estimate carries over, it isn't re-entered. */
+  initialCostCodeRows?: { costCodeId: string; qty: string; hours: string }[];
 }) {
-  const [costCodeRows, setCostCodeRows] = useState<CostCodeRow[]>([{ id: newId(), costCodeId: "", qty: "", hours: "" }]);
+  const [costCodeRows, setCostCodeRows] = useState<CostCodeRow[]>(
+    initialCostCodeRows && initialCostCodeRows.length > 0
+      ? initialCostCodeRows.map((r) => ({ id: newId(), ...r }))
+      : [{ id: newId(), costCodeId: "", qty: "", hours: "" }]
+  );
   const [materialRows, setMaterialRows] = useState<string[]>([]);
   const [equipmentRows, setEquipmentRows] = useState<string[]>([]);
   const [subRows, setSubRows] = useState<string[]>([]);

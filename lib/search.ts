@@ -1,6 +1,6 @@
 import { scopedPrisma } from "@/lib/tenant";
 
-export type SearchResultType = "job" | "customer" | "worker" | "costCode" | "changeOrder" | "materialRequest" | "equipment" | "document";
+export type SearchResultType = "job" | "opportunity" | "customer" | "worker" | "costCode" | "changeOrder" | "materialRequest" | "equipment" | "document";
 
 export type SearchResult = {
   type: SearchResultType;
@@ -12,6 +12,7 @@ export type SearchResult = {
 
 const TYPE_LABEL: Record<SearchResultType, string> = {
   job: "Project",
+  opportunity: "Opportunity",
   customer: "Customer",
   worker: "Worker",
   costCode: "Cost code",
@@ -38,11 +39,16 @@ export async function globalSearch(companyId: string, query: string): Promise<Se
   const prisma = scopedPrisma(companyId);
   const ci = { contains: q, mode: "insensitive" as const };
 
-  const [jobs, customers, workers, costCodes, changeOrders, materialRequests, equipment, documents] = await Promise.all([
+  const [jobs, opportunities, customers, workers, costCodes, changeOrders, materialRequests, equipment, documents] = await Promise.all([
     prisma.job.findMany({
       where: { OR: [{ title: ci }, { jobNumber: ci }] },
       take: PER_TYPE_LIMIT,
       select: { id: true, title: true, jobNumber: true },
+    }),
+    prisma.opportunity.findMany({
+      where: { OR: [{ title: ci }, { bidNumber: ci }] },
+      take: PER_TYPE_LIMIT,
+      select: { id: true, title: true, bidNumber: true },
     }),
     prisma.customer.findMany({ where: { name: ci }, take: PER_TYPE_LIMIT, select: { id: true, name: true, address: true } }),
     prisma.worker.findMany({ where: { name: ci }, take: PER_TYPE_LIMIT, select: { id: true, name: true, role: true } }),
@@ -71,6 +77,7 @@ export async function globalSearch(companyId: string, query: string): Promise<Se
 
   const results: SearchResult[] = [
     ...jobs.map((j) => ({ type: "job" as const, id: j.id, title: j.title, subtitle: j.jobNumber, href: `/jobs/${j.id}` })),
+    ...opportunities.map((o) => ({ type: "opportunity" as const, id: o.id, title: o.title, subtitle: o.bidNumber, href: `/opportunities/${o.id}` })),
     ...customers.map((c) => ({ type: "customer" as const, id: c.id, title: c.name, subtitle: c.address ?? "", href: `/customers` })),
     ...workers.map((w) => ({ type: "worker" as const, id: w.id, title: w.name, subtitle: w.role ?? "", href: `/workers/${w.id}` })),
     ...costCodes.map((c) => ({ type: "costCode" as const, id: c.id, title: `${c.code} — ${c.description}`, subtitle: "", href: `/cost-codes` })),

@@ -12,6 +12,7 @@ export const metadata: Metadata = {
 
 const PRIMARY_NAV = [
   { href: "/", label: "Command" },
+  { href: "/opportunities", label: "Pipeline" },
   { href: "/today", label: "Action Center" },
   { href: "/projects", label: "Projects" },
   { href: "/field", label: "Field" },
