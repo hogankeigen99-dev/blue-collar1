@@ -86,6 +86,14 @@ export async function updateChangeOrder(formData: FormData) {
       revenueAmount: co.revenueAmount,
       costAmount: co.costAmount,
     });
+  } else if (status === "REJECTED") {
+    await logAudit(session, {
+      action: "change_order.rejected",
+      entityType: "ChangeOrder",
+      entityId: id,
+      jobId,
+      detail: `"${co.title}"`,
+    });
   }
 
   revalidatePath(`/jobs/${jobId}/change-orders`);

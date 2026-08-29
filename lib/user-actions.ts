@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/session";
 import { hashPassword } from "@/lib/password";
+import { logAudit } from "@/lib/audit";
 import { randomBytes } from "crypto";
 
 function str(formData: FormData, key: string): string | undefined {
@@ -37,7 +38,7 @@ export async function createUser(formData: FormData) {
     throw new Error("A temporary password is required for password-auth accounts");
   }
 
-  await prisma.user.create({
+  const user = await prisma.user.create({
     data: {
       companyId: session.companyId,
       name,
@@ -46,6 +47,12 @@ export async function createUser(formData: FormData) {
       authProvider,
       passwordHash: authProvider === "PASSWORD" && password ? hashPassword(password) : null,
     },
+  });
+  await logAudit(session, {
+    action: "user.created",
+    entityType: "User",
+    entityId: user.id,
+    detail: `${email} — ${role} (${authProvider})`,
   });
 
   revalidatePath("/settings/users");
@@ -62,7 +69,13 @@ export async function toggleUserActive(formData: FormData) {
     throw new Error("You can't deactivate your own account");
   }
 
-  await prisma.user.update({ where: { id }, data: { active } });
+  const user = await prisma.user.update({ where: { id }, data: { active } });
+  await logAudit(session, {
+    action: active ? "user.activated" : "user.deactivated",
+    entityType: "User",
+    entityId: id,
+    detail: user.email,
+  });
 
   revalidatePath("/settings/users");
   redirect("/settings/users");
@@ -76,7 +89,8 @@ export async function resetUserPassword(formData: FormData) {
   if (!id) throw new Error("User is required");
 
   const tempPassword = randomBytes(9).toString("base64url");
-  await prisma.user.update({ where: { id }, data: { passwordHash: hashPassword(tempPassword) } });
+  const user = await prisma.user.update({ where: { id }, data: { passwordHash: hashPassword(tempPassword) } });
+  await logAudit(session, { action: "user.password_reset", entityType: "User", entityId: id, detail: user.email });
 
   revalidatePath("/settings/users");
   redirect(`/settings/users?tempPassword=${encodeURIComponent(tempPassword)}`);

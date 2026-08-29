@@ -4,6 +4,7 @@ import { scopedPrisma } from "@/lib/tenant";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireSession, requireRole } from "@/lib/session";
+import { logAudit } from "@/lib/audit";
 
 function str(formData: FormData, key: string): string | undefined {
   const v = formData.get(key);
@@ -65,18 +66,31 @@ export async function updateMaterialRequest(formData: FormData) {
   const receivedDateRaw = str(formData, "receivedDate");
   const expectedDeliveryRaw = str(formData, "expectedDeliveryDate");
 
-  await prisma.materialRequest.update({
+  const totalCost = num(formData, "totalCost");
+  const updated = await prisma.materialRequest.update({
     where: { id },
     data: {
       status: status as never,
       vendor: str(formData, "vendor"),
       poNumber: str(formData, "poNumber"),
       unitCost: num(formData, "unitCost"),
-      totalCost: num(formData, "totalCost"),
+      totalCost,
       expectedDeliveryDate: expectedDeliveryRaw ? new Date(expectedDeliveryRaw) : undefined,
       receivedDate: receivedDateRaw ? new Date(receivedDateRaw) : undefined,
     },
   });
+
+  // A PO issuance or receipt is a real financial commitment/realization —
+  // worth an audit trail entry the way invoice/change-order money events are.
+  if (status === "PO_ISSUED" || status === "RECEIVED") {
+    await logAudit(session, {
+      action: status === "PO_ISSUED" ? "material_request.po_issued" : "material_request.received",
+      entityType: "MaterialRequest",
+      entityId: id,
+      jobId,
+      detail: `${updated.description} — ${totalCost ?? updated.totalCost ?? "no cost recorded"}${updated.poNumber ? ` (PO ${updated.poNumber})` : ""}`,
+    });
+  }
 
   revalidatePath(`/jobs/${jobId}/materials`);
   redirect(`/jobs/${jobId}/materials`);

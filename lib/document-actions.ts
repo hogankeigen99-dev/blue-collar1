@@ -4,6 +4,7 @@ import { scopedPrisma } from "@/lib/tenant";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireSession, requireRole } from "@/lib/session";
+import { logAudit } from "@/lib/audit";
 
 const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024; // 10MB — Postgres-blob storage isn't meant for much more than this
 
@@ -63,6 +64,13 @@ export async function deleteDocument(formData: FormData) {
   if (!existing) throw new Error("Document not found");
 
   await prisma.document.delete({ where: { id } });
+  await logAudit(session, {
+    action: "document.deleted",
+    entityType: "Document",
+    entityId: id,
+    jobId,
+    detail: existing.title,
+  });
 
   revalidatePath(`/jobs/${jobId}/documents`);
   redirect(`/jobs/${jobId}/documents`);

@@ -31,7 +31,7 @@ export async function updateJobCommandCenter(formData: FormData) {
   const newStage = str(formData, "stage");
   const divisionId = str(formData, "divisionId");
 
-  const before = await prisma.job.findFirstOrThrow({ where: { id: jobId }, select: { stage: true } });
+  const before = await prisma.job.findFirstOrThrow({ where: { id: jobId }, select: { stage: true, contractValue: true } });
 
   if (divisionId) {
     // Division is a tenant model but the id is client-supplied — verify it
@@ -39,10 +39,12 @@ export async function updateJobCommandCenter(formData: FormData) {
     await prisma.division.findFirstOrThrow({ where: { id: divisionId } });
   }
 
+  const newContractValue = num(formData, "contractValue") ?? null;
+
   await prisma.job.update({
     where: { id: jobId },
     data: {
-      contractValue: num(formData, "contractValue") ?? null,
+      contractValue: newContractValue,
       pmUserId: str(formData, "pmUserId") ?? null,
       foremanWorkerId: str(formData, "foremanWorkerId") ?? null,
       divisionId: divisionId ?? null,
@@ -53,6 +55,16 @@ export async function updateJobCommandCenter(formData: FormData) {
       requiredDocsComplete: formData.get("requiredDocsComplete") === "on",
     },
   });
+
+  if (newContractValue !== before.contractValue) {
+    await logAudit(session, {
+      action: "job.contract_value_changed",
+      entityType: "Job",
+      entityId: jobId,
+      jobId,
+      detail: `${before.contractValue ?? 0} -> ${newContractValue ?? 0}`,
+    });
+  }
 
   // Automation: entering a new stage generates that stage's checklist.
   if (newStage && newStage !== before.stage) {
@@ -90,6 +102,13 @@ export async function setJobBudget(formData: FormData) {
     where: { jobId_category: { jobId, category: category as never } },
     update: { estimatedAmount },
     create: { jobId, category: category as never, estimatedAmount },
+  });
+  await logAudit(session, {
+    action: "job_budget.set",
+    entityType: "JobBudget",
+    entityId: `${jobId}:${category}`,
+    jobId,
+    detail: `${category} estimated ${estimatedAmount}`,
   });
 
   revalidatePath(`/jobs/${jobId}`);

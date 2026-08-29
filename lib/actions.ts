@@ -104,10 +104,20 @@ export async function createJob(formData: FormData) {
 export async function updateJobStatus(jobId: string, status: string) {
   const session = await requireSession(); // any signed-in role, including foremen in the field
   const prisma = scopedPrisma(session.companyId);
+  const before = await prisma.job.findFirstOrThrow({ where: { id: jobId }, select: { status: true } });
   await prisma.job.update({
     where: { id: jobId },
     data: { status: status as never },
   });
+  if (status !== before.status) {
+    await logAudit(session, {
+      action: "job.status_changed",
+      entityType: "Job",
+      entityId: jobId,
+      jobId,
+      detail: `${before.status} -> ${status}`,
+    });
+  }
   revalidatePath(`/jobs/${jobId}`);
   revalidatePath("/jobs");
   revalidatePath("/");

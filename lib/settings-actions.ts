@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/session";
 import { generateApiKey } from "@/lib/api-key";
 import { attemptDelivery, nextRetryDelayMinutes } from "@/lib/webhook-retry";
+import { logAudit } from "@/lib/audit";
 import { randomBytes } from "crypto";
 
 function str(formData: FormData, key: string): string | undefined {
@@ -20,7 +21,8 @@ export async function createApiKey(formData: FormData) {
   if (!name) throw new Error("Name is required");
 
   const { plaintext, hash, prefix } = generateApiKey();
-  await prisma.apiKey.create({ data: { companyId: session.companyId, name, keyHash: hash, keyPrefix: prefix } });
+  const key = await prisma.apiKey.create({ data: { companyId: session.companyId, name, keyHash: hash, keyPrefix: prefix } });
+  await logAudit(session, { action: "api_key.created", entityType: "ApiKey", entityId: key.id, detail: name });
 
   revalidatePath("/settings/api-keys");
   redirect(`/settings/api-keys?created=${encodeURIComponent(plaintext)}`);
@@ -32,7 +34,8 @@ export async function revokeApiKey(formData: FormData) {
   const id = str(formData, "id");
   if (!id) throw new Error("Key is required");
 
-  await prisma.apiKey.update({ where: { id }, data: { active: false } });
+  const key = await prisma.apiKey.update({ where: { id }, data: { active: false } });
+  await logAudit(session, { action: "api_key.revoked", entityType: "ApiKey", entityId: id, detail: key.name });
 
   revalidatePath("/settings/api-keys");
   redirect("/settings/api-keys");
@@ -46,7 +49,8 @@ export async function createWebhook(formData: FormData) {
   if (!url || events.length === 0) throw new Error("URL and at least one event are required");
 
   const secret = randomBytes(24).toString("base64url");
-  await prisma.webhook.create({ data: { companyId: session.companyId, url, events: events as never, secret } });
+  const webhook = await prisma.webhook.create({ data: { companyId: session.companyId, url, events: events as never, secret } });
+  await logAudit(session, { action: "webhook.created", entityType: "Webhook", entityId: webhook.id, detail: url });
 
   revalidatePath("/settings/webhooks");
   redirect(`/settings/webhooks?created=${encodeURIComponent(secret)}`);
@@ -59,7 +63,13 @@ export async function toggleWebhook(formData: FormData) {
   const active = formData.get("active") === "on";
   if (!id) throw new Error("Webhook is required");
 
-  await prisma.webhook.update({ where: { id }, data: { active } });
+  const webhook = await prisma.webhook.update({ where: { id }, data: { active } });
+  await logAudit(session, {
+    action: active ? "webhook.activated" : "webhook.paused",
+    entityType: "Webhook",
+    entityId: id,
+    detail: webhook.url,
+  });
 
   revalidatePath("/settings/webhooks");
   redirect("/settings/webhooks");

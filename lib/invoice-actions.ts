@@ -34,8 +34,15 @@ export async function createInvoice(formData: FormData) {
   // belongs to this company before creating against it.
   await prisma.job.findFirstOrThrow({ where: { id: jobId } });
 
-  await prisma.invoice.create({
+  const invoice = await prisma.invoice.create({
     data: { jobId, invoiceNumber, amount, date: new Date(date), notes: str(formData, "notes") },
+  });
+  await logAudit(session, {
+    action: "invoice.created",
+    entityType: "Invoice",
+    entityId: invoice.id,
+    jobId,
+    detail: `${invoiceNumber} — ${amount}`,
   });
 
   revalidatePath(`/jobs/${jobId}/invoices`);
@@ -68,6 +75,14 @@ export async function updateInvoiceStatus(formData: FormData) {
       detail: `${inv.invoiceNumber} — ${inv.amount}`,
     });
     await dispatchWebhook(session.companyId, "INVOICE_SENT", { jobId, invoiceId: id, invoiceNumber: inv.invoiceNumber, amount: inv.amount });
+  } else if (status === "PAID") {
+    await logAudit(session, {
+      action: "invoice.paid",
+      entityType: "Invoice",
+      entityId: id,
+      jobId,
+      detail: `${inv.invoiceNumber} — ${inv.amount}`,
+    });
   }
 
   revalidatePath(`/jobs/${jobId}/invoices`);

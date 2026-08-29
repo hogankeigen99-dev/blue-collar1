@@ -5,6 +5,7 @@ export default async function SettingsPage() {
   await requirePageRole("ADMIN");
 
   const links = [
+    { href: "/settings/activity", title: "Company activity", desc: "The full audit log — money, status, and security-relevant changes company-wide." },
     { href: "/settings/users", title: "Users", desc: "Login accounts for this company — password or SSO." },
     { href: "/settings/sso", title: "SSO", desc: "Configure your identity provider for company-wide single sign-on." },
     { href: "/settings/divisions", title: "Divisions", desc: "Organizational segmentation for jobs and workers within your company." },

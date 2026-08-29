@@ -4,6 +4,7 @@ import { scopedPrisma } from "@/lib/tenant";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/session";
+import { logAudit } from "@/lib/audit";
 
 function str(formData: FormData, key: string): string | undefined {
   const v = formData.get(key);
@@ -31,8 +32,15 @@ export async function createSubcontractorCost(formData: FormData) {
   // the job belongs to this company before creating against it.
   await prisma.job.findFirstOrThrow({ where: { id: jobId } });
 
-  await prisma.subcontractorCost.create({
+  const cost = await prisma.subcontractorCost.create({
     data: { jobId, vendor, committedAmount, description: str(formData, "description") },
+  });
+  await logAudit(session, {
+    action: "subcontractor_cost.created",
+    entityType: "SubcontractorCost",
+    entityId: cost.id,
+    jobId,
+    detail: `${vendor} — committed ${committedAmount}`,
   });
 
   revalidatePath(`/jobs/${jobId}`);
@@ -53,10 +61,20 @@ export async function updateSubcontractorCost(formData: FormData) {
   const existing = await prisma.subcontractorCost.findFirst({ where: { id, jobId } });
   if (!existing) throw new Error("Subcontractor cost not found");
 
+  const actualAmount = num(formData, "actualAmount");
   await prisma.subcontractorCost.update({
     where: { id },
-    data: { status: status as never, actualAmount: num(formData, "actualAmount") },
+    data: { status: status as never, actualAmount },
   });
+  if (status === "INVOICED" || status === "PAID") {
+    await logAudit(session, {
+      action: status === "PAID" ? "subcontractor_cost.paid" : "subcontractor_cost.invoiced",
+      entityType: "SubcontractorCost",
+      entityId: id,
+      jobId,
+      detail: `${existing.vendor} — actual ${actualAmount ?? existing.actualAmount}`,
+    });
+  }
 
   revalidatePath(`/jobs/${jobId}`);
   redirect(`/jobs/${jobId}`);

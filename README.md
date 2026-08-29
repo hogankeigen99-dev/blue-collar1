@@ -114,9 +114,22 @@ same-day instead of on the next payroll cycle.
   categorized and living against the job record — any signed-in role can
   upload (a foreman shouldn't need a PM to attach a safety doc), PM/ADMIN
   can delete.
-- **Enterprise permissions slice**: an audit log (`/jobs/[id]/activity`)
-  recording who did what on stage changes, change-order approvals, invoice
-  sends, daily-report submissions, and job deletions; a read-only public API
+- **Enterprise permissions slice**: an audit log recording who did what,
+  visible both per-job (`/jobs/[id]/activity`) and company-wide
+  (`/settings/activity`) for the events with no single job to attach to
+  (user/API-key/webhook/SSO/integration changes). Covers every mutation
+  that's money-, status-, identity-, or security-relevant: job stage,
+  status, and contract-value changes; job deletions; budget lines set;
+  change-order approvals and rejections; invoices created, sent, and paid;
+  material-request PO issuance and receipt; subcontractor costs invoiced
+  and paid; GL/cost-code mapping changes; documents deleted; and every
+  user, API key, webhook, SSO config, and integration-credential change
+  (created, revoked, activated/paused, password reset). Deliberately
+  *not* audited: routine, non-financial roster CRUD (creating a worker,
+  customer, cost code, checklist item, or material/change-order request
+  before it has a dollar amount or approval attached to it) — logging
+  every create would bury the events that actually matter in noise. A
+  read-only public API
   (`/api/v1/jobs`) authenticated by a Bearer API key (`/settings/api-keys` —
   the plaintext key is shown exactly once, at creation, then only its hash
   is stored); and webhooks (`/settings/webhooks`) that POST an HMAC-SHA256-

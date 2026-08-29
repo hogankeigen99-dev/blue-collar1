@@ -10,6 +10,7 @@ import { signValue } from "@/lib/auth";
 import { encryptSecret } from "@/lib/crypto";
 import { buildAuthorizeUrl, generatePkcePair, randomToken } from "@/lib/oidc";
 import { SSO_STATE_COOKIE, SSO_STATE_MAX_AGE_SECONDS, type SsoStatePayload } from "@/lib/sso";
+import { logAudit } from "@/lib/audit";
 
 function str(formData: FormData, key: string): string | undefined {
   const v = formData.get(key);
@@ -55,6 +56,12 @@ export async function saveSsoConfig(formData: FormData) {
       clientSecretEncrypted: clientSecret ? encryptSecret(clientSecret) : null,
       enabled,
     },
+  });
+  await logAudit(session, {
+    action: "sso_config.saved",
+    entityType: "SsoConfig",
+    entityId: session.companyId,
+    detail: `enabled=${enabled}, issuer=${issuerUrl ?? existing?.issuerUrl ?? "(none)"}${clientSecret ? ", secret rotated" : ""}`,
   });
 
   revalidatePath("/settings/sso");

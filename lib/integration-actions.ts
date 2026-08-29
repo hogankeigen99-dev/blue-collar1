@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/session";
 import { encryptSecret } from "@/lib/crypto";
+import { logAudit } from "@/lib/audit";
 
 function str(formData: FormData, key: string): string | undefined {
   const v = formData.get(key);
@@ -39,6 +40,12 @@ export async function saveIntegrationCredential(formData: FormData) {
     update: { encryptedData },
     create: { companyId: session.companyId, provider: provider as never, encryptedData },
   });
+  await logAudit(session, {
+    action: "integration_credential.saved",
+    entityType: "IntegrationCredential",
+    entityId: provider,
+    detail: provider,
+  });
 
   revalidatePath("/settings/integrations");
   redirect("/settings/integrations");
@@ -52,6 +59,12 @@ export async function disconnectIntegration(formData: FormData) {
 
   await prisma.integrationCredential.deleteMany({
     where: { companyId: session.companyId, provider: provider as never },
+  });
+  await logAudit(session, {
+    action: "integration_credential.removed",
+    entityType: "IntegrationCredential",
+    entityId: provider,
+    detail: provider,
   });
 
   revalidatePath("/settings/integrations");
