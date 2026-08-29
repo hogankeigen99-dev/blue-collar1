@@ -5,7 +5,10 @@ export default async function SettingsPage() {
   await requirePageRole("ADMIN");
 
   const links = [
+    { href: "/settings/users", title: "Users", desc: "Login accounts for this company — password or SSO." },
+    { href: "/settings/sso", title: "SSO", desc: "Configure your identity provider for company-wide single sign-on." },
     { href: "/settings/divisions", title: "Divisions", desc: "Organizational segmentation for jobs and workers within your company." },
+    { href: "/settings/integrations", title: "Integrations", desc: "Encrypted credential storage for Autodesk, BuildingConnected, and accounting connectors." },
     { href: "/settings/checklist-templates", title: "Checklist templates", desc: "What the automation engine generates per project stage." },
     { href: "/settings/api-keys", title: "API keys", desc: "Server-to-server access to the read API." },
     { href: "/settings/webhooks", title: "Webhooks", desc: "Push job events to an external endpoint." },

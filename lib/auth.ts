@@ -39,14 +39,18 @@ async function hmacKey(): Promise<CryptoKey> {
   );
 }
 
-export async function signSession(payload: SessionPayload): Promise<string> {
+// Generic HMAC-signed payload helpers — the session cookie is one use of
+// these; the short-lived SSO state cookie (lib/oidc.ts) is another. Both
+// need the same "sign JSON, verify JSON" shape, just with different payload
+// types and lifetimes, so the signing/verification logic lives here once.
+export async function signValue(payload: unknown): Promise<string> {
   const key = await hmacKey();
   const body = base64url(new TextEncoder().encode(JSON.stringify(payload)));
   const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(body));
   return `${body}.${base64url(new Uint8Array(signature))}`;
 }
 
-export async function verifySessionToken(token: string | undefined): Promise<SessionPayload | null> {
+export async function verifyValue<T>(token: string | undefined): Promise<T | null> {
   if (!token) return null;
   const [body, sig] = token.split(".");
   if (!body || !sig) return null;
@@ -61,10 +65,18 @@ export async function verifySessionToken(token: string | undefined): Promise<Ses
       new TextEncoder().encode(body)
     );
     if (!valid) return null;
-    return JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as SessionPayload;
+    return JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as T;
   } catch {
     return null;
   }
+}
+
+export async function signSession(payload: SessionPayload): Promise<string> {
+  return signValue(payload);
+}
+
+export async function verifySessionToken(token: string | undefined): Promise<SessionPayload | null> {
+  return verifyValue<SessionPayload>(token);
 }
 
 export const SESSION_COOKIE_OPTIONS = {

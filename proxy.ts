@@ -14,6 +14,8 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // /api/v1/* authenticates itself via a Bearer API key, not the session cookie.
-  matcher: ["/((?!login|api/v1|_next/static|_next/image|favicon.ico).*)"],
+  // /api/v1/* authenticates itself via a Bearer API key, not the session
+  // cookie. /api/auth/sso/* runs before a session cookie exists — the SSO
+  // callback route is what CREATES it (lib/sso-actions.ts, app/api/auth/sso/callback).
+  matcher: ["/((?!login|api/v1|api/auth/sso|_next/static|_next/image|favicon.ico).*)"],
 };

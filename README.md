@@ -118,6 +118,40 @@ same-day instead of on the next payroll cycle.
   signed JSON payload to your endpoint on job-stage-changed, change-order-
   approved, invoice-sent, and daily-report-submitted, with delivery status
   recorded per attempt.
+- **Multi-tenant company isolation**: `Company` is the hard security
+  boundary — every tenant-scoped query and write goes through a Prisma
+  Client Extension (`lib/tenant.ts`, `scopedPrisma(companyId)`) that injects
+  `companyId` into every query automatically and refuses `findUnique`/
+  `findUniqueOrThrow` on tenant models outright (an id alone can't be scoped
+  after the fact — `findFirst` is used instead everywhere). Child records
+  (daily reports, change orders, invoices, materials, documents, schedule
+  assignments, and more) don't carry their own `companyId` — they inherit
+  isolation from their parent Job/Worker/Customer, so every action that
+  creates or updates one from a client-supplied parent id re-verifies that
+  parent belongs to the caller's company first. Verified live: two seeded
+  companies (`npm run db:seed`) cannot see each other's jobs, workers, or
+  customers; direct job-id guessing 404s instead of leaking; a company-
+  scoped API key only returns that company's jobs; an uploaded document is
+  unreachable cross-tenant.
+- **Divisions** (`/settings/divisions`): organizational segmentation within
+  a company — not a security boundary, just a way to group jobs and workers
+  by region or business line, with a division picker on job/worker forms and
+  a filter on the jobs list.
+- **SSO** (`/settings/sso`, `/settings/users`): a real OIDC authorization-
+  code-flow implementation with PKCE (`lib/oidc.ts`) — discovery, the
+  authorize redirect, token exchange, and `id_token` verification against
+  the IdP's JWKS all genuinely happen, not stubbed. It's
+  bring-your-identity-to-a-provisioned-account, not self-signup: an admin
+  creates the login account first at `/settings/users` with sign-in method
+  "SSO", and it's linked to the IdP's `sub` claim by email on that person's
+  first sign-in — an IdP token can never mint itself an account or a role
+  that wasn't already provisioned here. Client secrets are encrypted at
+  rest (`lib/crypto.ts`, AES-256-GCM, `CREDENTIALS_ENCRYPTION_KEY`).
+  Verified live end-to-end against a standards-compliant local test IdP
+  (config, provisioning, the full redirect → callback → session round trip,
+  and the "no account provisioned" rejection path all exercised for real);
+  connecting a real customer IdP (Okta, Entra, Google Workspace, etc.) only
+  needs its issuer URL and OAuth client credentials in `/settings/sso`.
 
 Not in scope for this MVP: invoicing/payments themselves (billing readiness
 tells you *when*, not how to generate the invoice), notifications (alerts are
@@ -125,24 +159,12 @@ pull, not push — no email/SMS yet), and estimate imports from external
 takeoff/estimating software (cost-code budget lines can be CSV-imported, but
 full estimate line items are entered directly).
 
-**Deliberately not built, and why**: multi-tenant Company/Division data
-isolation, SSO, and DB backup/recovery were explicitly requested but are out
-of scope for this pass — not because they're unimportant, but because faking
-any of them would be worse than not having them:
-- **Company/Division isolation** needs every query across ~30 files scoped
-  by tenant; doing that safely requires a dedicated migration and an audit of
-  every single query, not a bolt-on flag — the risk of missing one and
-  leaking data across tenants is exactly the kind of half-measure this app's
-  build process has been avoiding throughout.
-- **SSO** needs a real identity provider registration (client ID/secret,
-  redirect URIs) that only you can create — there's no way to build this
-  without those credentials, and a UI that pretends to support it without a
-  working provider behind it would be a fake screen.
-- **Backup/recovery** is an infrastructure concern, not application code —
-  most managed Postgres providers (including Railway) already offer
-  automated backups/point-in-time recovery; turn that on at the provider
-  rather than trusting an in-app "backup now" button that can't actually
-  guarantee consistency the way a real WAL-based backup does.
+**Deliberately not built, and why**: DB backup/recovery was explicitly
+requested but is out of scope for this pass — it's an infrastructure
+concern, not application code. Most managed Postgres providers (including
+Railway) already offer automated backups/point-in-time recovery; turn that
+on at the provider rather than trusting an in-app "backup now" button that
+can't actually guarantee consistency the way a real WAL-based backup does.
 
 ## Local development
 
