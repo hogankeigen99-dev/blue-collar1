@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { getSession } from "@/lib/session";
 import { logout } from "@/lib/auth-actions";
+import { canManageEstimates } from "@/lib/auth";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -48,6 +49,11 @@ export default async function RootLayout({
                   <Link href="/cost-codes" className="text-sm text-slate-600 hover:text-slate-900">
                     Cost Codes
                   </Link>
+                  {canManageEstimates(session.role) && (
+                    <Link href="/accounting" className="text-sm text-slate-600 hover:text-slate-900">
+                      Accounting
+                    </Link>
+                  )}
                   <div className="ml-auto flex items-center gap-3">
                     <span className="text-sm text-slate-500">
                       {session.name} <span className="text-slate-400">({session.role})</span>

@@ -36,7 +36,6 @@ export async function updateJobCommandCenter(formData: FormData) {
       stage: (str(formData, "stage") as never) ?? undefined,
       punchListComplete: formData.get("punchListComplete") === "on",
       requiredDocsComplete: formData.get("requiredDocsComplete") === "on",
-      billedAmount: num(formData, "billedAmount") ?? 0,
     },
   });
 

@@ -120,7 +120,6 @@ async function main() {
       stage: "COMPLETE",
       punchListComplete: true,
       requiredDocsComplete: true,
-      billedAmount: 310000,
     },
   });
   const harborSlabBudget = await prisma.jobCostCode.create({
@@ -149,6 +148,15 @@ async function main() {
       submittedById: frank.id,
     },
   });
+  await prisma.invoice.create({
+    data: {
+      jobId: harborFoundation.id,
+      invoiceNumber: "INV-1001",
+      amount: 310000,
+      date: new Date("2026-07-16"),
+      status: "PAID",
+    },
+  });
 
   // An in-progress job where the same crew is running well over the estimate —
   // exactly the gap this feature is meant to surface days into Phase 2, not
@@ -167,7 +175,6 @@ async function main() {
       targetStartDate: new Date("2026-08-10"),
       targetEndDate: new Date("2026-09-25"),
       stage: "ACTIVE",
-      billedAmount: 210000,
     },
   });
   const phase2SlabBudget = await prisma.jobCostCode.create({
@@ -327,6 +334,26 @@ async function main() {
       createdById: frank.id,
     },
   });
+
+  await prisma.invoice.createMany({
+    data: [
+      { jobId: riverside2.id, invoiceNumber: "INV-2001", amount: 150000, date: new Date("2026-08-15"), status: "PAID" },
+      { jobId: riverside2.id, invoiceNumber: "INV-2002", amount: 60000, date: new Date("2026-08-25"), status: "SENT" },
+    ],
+  });
+
+  // Accounting handoff: GL mapping so the CSV export is ready to import.
+  await prisma.accountingCategoryMapping.createMany({
+    data: [
+      { category: "LABOR", glCode: "6100", glAccountName: "Direct Labor" },
+      { category: "MATERIAL", glCode: "6200", glAccountName: "Materials" },
+      { category: "EQUIPMENT", glCode: "6300", glAccountName: "Equipment Rental" },
+      { category: "SUBCONTRACTOR", glCode: "6400", glAccountName: "Subcontract Costs" },
+      { category: "OTHER", glCode: "6900", glAccountName: "Other Job Costs" },
+    ],
+  });
+  await prisma.costCode.update({ where: { id: concreteSlab.id }, data: { glCode: "6100-CONC" } });
+  await prisma.costCode.update({ where: { id: excavation.id }, data: { glCode: "6100-EXC" } });
 
   // Crew schedule board demo data — this week's Mon-Thu, so /schedule shows
   // a populated grid immediately (Friday is left open to demo an empty cell).

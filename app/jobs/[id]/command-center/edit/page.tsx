@@ -106,17 +106,13 @@ export default async function EditCommandCenterPage({
           </select>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium mb-1">Billed to date</label>
-          <input
-            name="billedAmount"
-            type="number"
-            step="any"
-            min="0"
-            defaultValue={job.billedAmount}
-            className="w-full border rounded-md px-3 py-2 text-sm"
-          />
-        </div>
+        <p className="text-xs text-slate-500">
+          Billed to date is no longer set here — it&apos;s computed from this job&apos;s{" "}
+          <Link href={`/jobs/${job.id}/invoices`} className="text-blue-600 hover:underline">
+            invoices
+          </Link>
+          .
+        </p>
 
         <div className="space-y-2">
           <label className="flex items-center gap-2 text-sm">

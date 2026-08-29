@@ -86,6 +86,15 @@ same-day instead of on the next payroll cycle.
 - **Billing readiness**: a computed checklist per job — completion, approved
   change orders, required documents, recent field reports, punch list, and
   no missing costs — so "ready to invoice" is a real answer, not a guess.
+- **Invoices** (`/jobs/[id]/invoices`): real invoice records (number, amount,
+  date, DRAFT/SENT/PAID) — "billed to date" everywhere in the app is computed
+  from these, not a manually-typed running total.
+- **Accounting handoff** (`/accounting`): maps each cost category and cost
+  code to your accounting system's GL code, then every job has a one-click
+  **CSV export** (labor/material/equipment/subcontractor actuals, approved
+  change orders, and invoices, all GL-coded) — built to integrate with an
+  existing accounting system (QuickBooks, Sage, Foundation, etc.) via import,
+  not to replace it.
 
 Not in scope for this MVP: invoicing/payments themselves (billing readiness
 tells you *when*, not how to generate the invoice), notifications (alerts are

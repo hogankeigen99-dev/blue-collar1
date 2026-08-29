@@ -28,7 +28,7 @@ export type JobCosting = {
 };
 
 export async function getJobCosting(jobId: string): Promise<JobCosting> {
-  const [job, budgets, jobCostCodes, materialRequests, equipmentAssignments, subcontractorCosts, changeOrders] =
+  const [job, budgets, jobCostCodes, materialRequests, equipmentAssignments, subcontractorCosts, changeOrders, invoices] =
     await Promise.all([
       prisma.job.findUniqueOrThrow({ where: { id: jobId } }),
       prisma.jobBudget.findMany({ where: { jobId } }),
@@ -37,6 +37,7 @@ export async function getJobCosting(jobId: string): Promise<JobCosting> {
       prisma.equipmentAssignment.findMany({ where: { jobId }, include: { equipment: true } }),
       prisma.subcontractorCost.findMany({ where: { jobId } }),
       prisma.changeOrder.findMany({ where: { jobId } }),
+      prisma.invoice.findMany({ where: { jobId, status: { in: ["SENT", "PAID"] } } }),
     ]);
 
   const estimatedByCategory = Object.fromEntries(budgets.map((b) => [b.category, b.estimatedAmount]));
@@ -151,7 +152,7 @@ export async function getJobCosting(jobId: string): Promise<JobCosting> {
     changeOrderRevenue,
     changeOrderCost,
     contractValue,
-    billedAmount: job.billedAmount,
+    billedAmount: invoices.reduce((s, i) => s + i.amount, 0),
     projectedFinalCost,
     projectedGrossProfit,
     projectedMarginPct,

@@ -128,7 +128,7 @@ export default async function JobDetailPage({
         </div>
         <div>
           <div className="text-slate-500">Billed to date</div>
-          <div className="font-medium">{formatMoney(job.billedAmount)}</div>
+          <div className="font-medium">{formatMoney(costing.billedAmount)}</div>
         </div>
       </div>
 
@@ -146,6 +146,17 @@ export default async function JobDetailPage({
         <Link href="/equipment" className="bg-white border rounded-md px-3 py-1.5 hover:bg-slate-50">
           Equipment
         </Link>
+        <Link href={`/jobs/${job.id}/invoices`} className="bg-white border rounded-md px-3 py-1.5 hover:bg-slate-50">
+          Invoices
+        </Link>
+        {canEstimate && (
+          <a
+            href={`/api/jobs/${job.id}/accounting-export`}
+            className="bg-white border rounded-md px-3 py-1.5 hover:bg-slate-50"
+          >
+            Export to accounting (CSV)
+          </a>
+        )}
       </div>
 
       {/* Job costing */}
