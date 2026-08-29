@@ -21,7 +21,7 @@ export default async function RootLayout({
       <body>
         <div className="min-h-screen flex flex-col">
           <header className="border-b bg-white">
-            <nav className="max-w-5xl mx-auto px-4 py-3 flex items-center gap-6">
+            <nav className="max-w-5xl mx-auto px-4 py-3 flex flex-wrap items-center gap-x-6 gap-y-2">
               <Link href="/" className="font-semibold text-lg">
                 CrewSync
               </Link>
@@ -32,6 +32,9 @@ export default async function RootLayout({
                   </Link>
                   <Link href="/schedule" className="text-sm text-slate-600 hover:text-slate-900">
                     Schedule
+                  </Link>
+                  <Link href="/equipment" className="text-sm text-slate-600 hover:text-slate-900">
+                    Equipment
                   </Link>
                   <Link href="/workers" className="text-sm text-slate-600 hover:text-slate-900">
                     Workers

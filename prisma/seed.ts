@@ -14,7 +14,7 @@ async function main() {
       role: "ADMIN",
     },
   });
-  await prisma.user.create({
+  const priya = await prisma.user.create({
     data: {
       name: "Priya Shah",
       email: "pm@crewsync.dev",
@@ -71,10 +71,10 @@ async function main() {
   // --- Self-perform labor productivity demo data ---
 
   const frank = await prisma.worker.create({
-    data: { name: "Frank Delgado", role: "Concrete Foreman", phone: "555-0301" },
+    data: { name: "Frank Delgado", role: "Concrete Foreman", phone: "555-0301", laborRate: 62 },
   });
   const miguel = await prisma.worker.create({
-    data: { name: "Miguel Torres", role: "Laborer", phone: "555-0302" },
+    data: { name: "Miguel Torres", role: "Laborer", phone: "555-0302", laborRate: 38 },
   });
 
   const concreteSlab = await prisma.costCode.create({
@@ -112,6 +112,15 @@ async function main() {
       status: "COMPLETED",
       customerId: harborView.id,
       assignments: { create: [{ workerId: frank.id }, { workerId: miguel.id }] },
+      contractValue: 310000,
+      pmUserId: priya.id,
+      foremanWorkerId: frank.id,
+      targetStartDate: new Date("2026-07-01"),
+      targetEndDate: new Date("2026-07-15"),
+      stage: "COMPLETE",
+      punchListComplete: true,
+      requiredDocsComplete: true,
+      billedAmount: 310000,
     },
   });
   const harborSlabBudget = await prisma.jobCostCode.create({
@@ -130,6 +139,16 @@ async function main() {
       { jobCostCodeId: harborSlabBudget.id, date: new Date("2026-07-09"), hours: 44, quantity: 51, crewSize: 5, enteredById: frank.id },
     ],
   });
+  await prisma.dailyReport.create({
+    data: {
+      jobId: harborFoundation.id,
+      date: new Date("2026-07-09"),
+      crewSize: 5,
+      hours: 44,
+      workCompleted: "Final pour complete, forms stripped, site cleaned up",
+      submittedById: frank.id,
+    },
+  });
 
   // An in-progress job where the same crew is running well over the estimate —
   // exactly the gap this feature is meant to surface days into Phase 2, not
@@ -142,6 +161,13 @@ async function main() {
       status: "IN_PROGRESS",
       customerId: customer.id,
       assignments: { create: [{ workerId: frank.id }, { workerId: miguel.id }] },
+      contractValue: 620000,
+      pmUserId: priya.id,
+      foremanWorkerId: frank.id,
+      targetStartDate: new Date("2026-08-10"),
+      targetEndDate: new Date("2026-09-25"),
+      stage: "ACTIVE",
+      billedAmount: 210000,
     },
   });
   const phase2SlabBudget = await prisma.jobCostCode.create({
@@ -167,6 +193,135 @@ async function main() {
       costCodeId: excavation.id,
       estimatedQty: 300,
       estimatedHours: 90,
+    },
+  });
+
+  // --- Job costing, field ops, and change-order demo data (Riverside Phase 2) ---
+
+  await prisma.jobBudget.createMany({
+    data: [
+      { jobId: riverside2.id, category: "LABOR", estimatedAmount: 18700 },
+      { jobId: riverside2.id, category: "MATERIAL", estimatedAmount: 165000 },
+      { jobId: riverside2.id, category: "EQUIPMENT", estimatedAmount: 9500 },
+      { jobId: riverside2.id, category: "SUBCONTRACTOR", estimatedAmount: 48000 },
+    ],
+  });
+
+  await prisma.materialRequest.createMany({
+    data: [
+      {
+        jobId: riverside2.id,
+        description: "Ready-mix concrete, 4000 PSI",
+        quantity: 140,
+        unit: "CY",
+        status: "RECEIVED",
+        vendor: "Summit Concrete Supply",
+        poNumber: "PO-1042",
+        unitCost: 168,
+        totalCost: 23520,
+        expectedDeliveryDate: new Date("2026-08-24"),
+        receivedDate: new Date("2026-08-24"),
+        requestedById: frank.id,
+      },
+      {
+        jobId: riverside2.id,
+        description: "#4 rebar",
+        quantity: 12,
+        unit: "TON",
+        status: "ORDERED",
+        vendor: "Metro Rebar & Supply",
+        poNumber: "PO-1051",
+        unitCost: 1150,
+        totalCost: 13800,
+        expectedDeliveryDate: new Date("2026-08-27"),
+        requestedById: frank.id,
+      },
+    ],
+  });
+
+  const equipment = await prisma.equipment.create({
+    data: { name: "Concrete pump truck", type: "Pump truck", ownership: "RENTED", dailyRentalCost: 650 },
+  });
+  await prisma.equipmentAssignment.create({
+    data: {
+      equipmentId: equipment.id,
+      jobId: riverside2.id,
+      startDate: new Date("2026-08-24"),
+      endDate: new Date("2026-08-28"),
+      actualPickupDate: new Date("2026-08-24"),
+      downtimeNotes: "Half day lost to a hydraulic leak on 8/26",
+    },
+  });
+
+  await prisma.subcontractorCost.create({
+    data: {
+      jobId: riverside2.id,
+      vendor: "Ace Rebar Placing",
+      description: "Rebar placement, Phase 2 slab",
+      committedAmount: 45000,
+      actualAmount: 22000,
+      status: "INVOICED",
+    },
+  });
+
+  const rockReport = await prisma.dailyReport.create({
+    data: {
+      jobId: riverside2.id,
+      date: new Date("2026-08-26"),
+      crewSize: 5,
+      hours: 40,
+      workCompleted: "Poured section C, grid lines 3-6",
+      equipmentIssue: "Pump truck hydraulic leak, ~4 hrs downtime",
+      hasChangeCondition: true,
+      changeConditionNotes: "Hit rock below spec elevation at grid C4 — needs excavation beyond bid scope",
+      submittedById: frank.id,
+    },
+  });
+  await prisma.dailyReport.createMany({
+    data: [
+      {
+        jobId: riverside2.id,
+        date: new Date("2026-08-24"),
+        crewSize: 5,
+        hours: 42,
+        workCompleted: "Set forms and poured section A",
+        materialNeeded: "More rebar chairs for section B",
+        submittedById: frank.id,
+      },
+      {
+        jobId: riverside2.id,
+        date: new Date("2026-08-27"),
+        crewSize: 5,
+        hours: 42,
+        workCompleted: "Poured section D",
+        tomorrowPlan: "Strip forms on section A, start section E layout",
+        submittedById: frank.id,
+      },
+    ],
+  });
+
+  await prisma.changeOrder.create({
+    data: {
+      jobId: riverside2.id,
+      title: "Unforeseen rock excavation at grid C4",
+      description: rockReport.changeConditionNotes,
+      status: "SUBMITTED",
+      revenueAmount: 12000,
+      costAmount: 9000,
+      sourceDailyReportId: rockReport.id,
+      createdById: frank.id,
+    },
+  });
+  await prisma.changeOrder.create({
+    data: {
+      jobId: riverside2.id,
+      title: "Additional footing at grid C4",
+      description: "Owner-requested footing addition for future equipment pad",
+      status: "APPROVED",
+      revenueAmount: 8500,
+      costAmount: 5200,
+      approvedAt: new Date("2026-08-25"),
+      createdById: frank.id,
     },
   });
 

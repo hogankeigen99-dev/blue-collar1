@@ -46,9 +46,44 @@ same-day instead of on the next payroll cycle.
     the company's own actuals instead of bidding from gut feel or generic
     unit-cost books.
 
-Not in scope for this MVP: invoicing/payments, notifications, equipment
-utilization tracking, and estimate imports from external takeoff/estimating
-software. These are natural next steps once the core data model is validated.
+- **Job Command Center** (`/jobs/[id]`): every job's operational home —
+  contract value, PM, foreman, target dates, project stage, schedule progress
+  (derived from cost-code productivity), and links out to every sub-workflow
+  below, all on one page.
+- **Full job costing**: estimated vs. committed vs. actual vs. projected
+  dollars per category (labor, material, equipment, subcontractor, other),
+  rolled up into projected final cost, gross profit, and margin. Labor is
+  priced from real logged hours × each worker's rate and projected from the
+  job's current productivity burn rate; the rest use committed/actual data
+  from the workflows below. A budget can be set per category from the job page.
+- **Daily field reports** (`/jobs/[id]/daily-reports`): one fast form per job
+  per day — crew size, hours, work completed, photos, material needed,
+  equipment issue, safety issue, change condition, delay reason, and
+  tomorrow's plan. Submitting again for the same date updates it in place.
+- **Change orders** (`/jobs/[id]/change-orders`): field flags a change
+  condition on a daily report → becomes a change order → PM prices it →
+  approval adds the revenue and cost into job costing automatically.
+- **Materials & procurement** (`/jobs/[id]/materials`): field request → PM
+  approval → vendor/PO → ordered → received, with vendor, PO #, and cost
+  tracked at each step.
+- **Equipment** (`/equipment`): assign owned/rented equipment to jobs for a
+  date range, track actual pickup/return and downtime, and see cost against
+  budget. Overlapping assignments for the same equipment are flagged, not
+  silently allowed.
+- **Subcontractor costs**: committed vs. actual per vendor per job, tracked
+  inline on the Command Center.
+- **Billing readiness**: a computed checklist per job — completion, approved
+  change orders, required documents, recent field reports, punch list, and
+  no missing costs — so "ready to invoice" is a real answer, not a guess.
+
+Not in scope for this MVP: invoicing/payments themselves (billing readiness
+tells you *when*, not how to generate the invoice), notifications, and
+estimate imports from external takeoff/estimating software (cost-code budget
+lines can be CSV-imported, but full estimate line items are entered directly).
+Exception alerts (labor overruns, schedule risk, material risk, margin risk,
+etc.) and crew-scheduling upgrades (availability, multi-day assignment,
+conflict warnings) are built at the data/logic layer (`lib/alerts.ts`) but not
+yet wired into a dedicated screen — see the next section of ongoing work.
 
 ## Local development
 
@@ -125,7 +160,7 @@ environment (matching its runtime, so no `binaryTargets` override is needed).
 ## Project structure
 
 ```
-app/                          Next.js App Router pages (dashboard, jobs, workers, customers, cost codes, schedule, login)
+app/                          Next.js App Router pages (dashboard, jobs + command center + daily reports/materials/change orders, equipment, workers, customers, cost codes, schedule, login)
 proxy.ts                      Route protection — redirects signed-out requests to /login
 lib/prisma.ts                 Shared Prisma client
 lib/actions.ts                 Server Actions for jobs/workers/customers
@@ -138,6 +173,17 @@ lib/password.ts                Password hashing (Node crypto — server-actions/
 lib/auth-actions.ts            Login/logout Server Actions
 lib/session.ts                 getSession/requireSession/requireRole/requirePageRole helpers
 lib/csv.ts                     Small CSV parser for the budget-line importer
+lib/job-costing.ts              Estimated/committed/actual/projected cost rollup per job
+lib/billing.ts                  Billing-readiness checklist computation
+lib/alerts.ts                   Exception-alert scan across all jobs (not yet on a dedicated screen)
+lib/format.ts                   Shared money/date formatting + stage/category labels
+lib/command-center-actions.ts   Server Actions for job command-center fields + category budgets
+lib/daily-report-actions.ts     Server Action for daily field reports (with photo upload)
+lib/materials-actions.ts        Server Actions for material requests
+lib/equipment-actions.ts        Server Actions for equipment + job assignment (with conflict warning)
+lib/change-order-actions.ts     Server Actions for change orders
+lib/subcontractor-actions.ts    Server Actions for subcontractor costs
+app/api/photos/[id]/route.ts    Serves daily-report photo bytes (stored in Postgres)
 prisma/schema.prisma  Data model
 prisma/seed.ts        Sample data, demo login accounts, and a labor-productivity demo scenario
 railway.json          Railway build/deploy config

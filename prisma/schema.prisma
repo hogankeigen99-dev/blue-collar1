@@ -31,17 +31,85 @@ enum UnitOfMeasure {
   LS // lump sum
 }
 
+// Construction-phase stage, distinct from JobStatus (which tracks whether the
+// job is scheduled/active/done at all). Drives the Command Center and billing
+// readiness — e.g. you can't be billing-ready before CLOSEOUT.
+enum ProjectStage {
+  PRECON
+  MOBILIZATION
+  ACTIVE
+  PUNCH_LIST
+  CLOSEOUT
+  COMPLETE
+}
+
+enum CostCategory {
+  LABOR
+  MATERIAL
+  EQUIPMENT
+  SUBCONTRACTOR
+  OTHER
+}
+
+enum ChangeOrderStatus {
+  IDENTIFIED
+  PRICED
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+enum MaterialRequestStatus {
+  REQUESTED
+  APPROVED
+  PO_ISSUED
+  ORDERED
+  RECEIVED
+  REJECTED
+}
+
+enum EquipmentOwnership {
+  OWNED
+  RENTED
+}
+
+enum SubcontractorCostStatus {
+  COMMITTED
+  INVOICED
+  PAID
+}
+
 model Worker {
-  id                  String               @id @default(cuid())
+  id                  String                 @id @default(cuid())
   name                String
   role                String?
   phone               String?
   email               String?
-  active              Boolean              @default(true)
-  createdAt           DateTime             @default(now())
+  laborRate           Float? // $/hr — used to price actual labor cost from logged production hours
+  active              Boolean                @default(true)
+  createdAt           DateTime               @default(now())
   jobs                JobAssignment[]
   productionEntries   ProductionEntry[]
   scheduleAssignments ScheduleAssignment[]
+  dailyReports        DailyReport[]
+  materialRequests    MaterialRequest[]
+  changeOrdersCreated ChangeOrder[]
+  foremanForJobs      Job[]                  @relation("JobForeman")
+  unavailability      WorkerUnavailability[]
+}
+
+// A day a worker is marked unavailable (PTO, sick, other commitment) — checked
+// when assigning the crew schedule so a dispatcher gets a warning instead of
+// silently double-booking someone who can't actually show up.
+model WorkerUnavailability {
+  id        String   @id @default(cuid())
+  worker    Worker   @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  workerId  String
+  date      DateTime
+  reason    String?
+  createdAt DateTime @default(now())
+
+  @@unique([workerId, date])
 }
 
 // Login account. Distinct from Worker (a Worker is a crew member who may or
@@ -55,6 +123,7 @@ model User {
   role         Role     @default(FOREMAN)
   active       Boolean  @default(true)
   createdAt    DateTime @default(now())
+  pmForJobs    Job[]    @relation("JobPM")
 }
 
 model Customer {
@@ -69,19 +138,39 @@ model Customer {
 }
 
 model Job {
-  id                  String               @id @default(cuid())
-  title               String
-  description         String?
-  status              JobStatus            @default(SCHEDULED)
-  address             String?
-  scheduledAt         DateTime?
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
-  customer            Customer?            @relation(fields: [customerId], references: [id])
-  customerId          String?
-  assignments         JobAssignment[]
-  costCodes           JobCostCode[]
-  scheduleAssignments ScheduleAssignment[]
+  id          String    @id @default(cuid())
+  title       String
+  description String?
+  status      JobStatus @default(SCHEDULED)
+  address     String?
+  scheduledAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  customer    Customer? @relation(fields: [customerId], references: [id])
+  customerId  String?
+
+  // Command Center fields
+  contractValue        Float?
+  pm                   User?        @relation("JobPM", fields: [pmUserId], references: [id])
+  pmUserId             String?
+  foreman              Worker?      @relation("JobForeman", fields: [foremanWorkerId], references: [id])
+  foremanWorkerId      String?
+  targetStartDate      DateTime?
+  targetEndDate        DateTime?
+  stage                ProjectStage @default(PRECON)
+  punchListComplete    Boolean      @default(false)
+  requiredDocsComplete Boolean      @default(false)
+  billedAmount         Float        @default(0)
+
+  assignments          JobAssignment[]
+  costCodes            JobCostCode[]
+  scheduleAssignments  ScheduleAssignment[]
+  budgets              JobBudget[]
+  changeOrders         ChangeOrder[]
+  dailyReports         DailyReport[]
+  materialRequests     MaterialRequest[]
+  equipmentAssignments EquipmentAssignment[]
+  subcontractorCosts   SubcontractorCost[]
 }
 
 model JobAssignment {
@@ -156,4 +245,149 @@ model ScheduleAssignment {
 
   @@unique([workerId, date])
   @@index([jobId, date])
+}
+
+// The original budget per cost category, set once at job kickoff. Committed
+// and actual dollars are computed from the operational tables below (material
+// requests, equipment assignments, subcontractor costs, logged labor hours)
+// rather than duplicated here, so they can't drift out of sync.
+model JobBudget {
+  id              String       @id @default(cuid())
+  job             Job          @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  jobId           String
+  category        CostCategory
+  estimatedAmount Float
+  createdAt       DateTime     @default(now())
+
+  @@unique([jobId, category])
+}
+
+// Field-identified extra work, priced and routed through PM approval before
+// it becomes contract revenue and budget — the change-order workflow.
+model ChangeOrder {
+  id                  String            @id @default(cuid())
+  job                 Job               @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  jobId               String
+  title               String
+  description         String?
+  status              ChangeOrderStatus @default(IDENTIFIED)
+  revenueAmount       Float? // added to contract value once approved
+  costAmount          Float? // added budget impact once approved
+  sourceDailyReport   DailyReport?      @relation(fields: [sourceDailyReportId], references: [id])
+  sourceDailyReportId String?
+  createdBy           Worker?           @relation(fields: [createdById], references: [id])
+  createdById         String?
+  createdAt           DateTime          @default(now())
+  approvedAt          DateTime?
+}
+
+// The upgraded field daily report — one per job per day, fast to fill out,
+// covering crew/hours, progress, and every exception category (material,
+// equipment, safety, change conditions, delays) in one form.
+model DailyReport {
+  id                   String   @id @default(cuid())
+  job                  Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  jobId                String
+  date                 DateTime
+  crewSize             Int?
+  hours                Float?
+  workCompleted        String?
+  materialNeeded       String?
+  equipmentIssue       String?
+  safetyIssue          String?
+  hasChangeCondition   Boolean  @default(false)
+  changeConditionNotes String?
+  delayReason          String?
+  tomorrowPlan         String?
+  submittedBy          Worker?  @relation(fields: [submittedById], references: [id])
+  submittedById        String?
+  createdAt            DateTime @default(now())
+
+  photos       DailyReportPhoto[]
+  changeOrders ChangeOrder[]
+
+  @@unique([jobId, date])
+  @@index([jobId, date])
+}
+
+// Small photo blobs stored in Postgres for MVP simplicity — fine at this
+// scale, but a real object store (S3/R2) is the right move before this sees
+// heavy photo volume.
+model DailyReportPhoto {
+  id            String      @id @default(cuid())
+  dailyReport   DailyReport @relation(fields: [dailyReportId], references: [id], onDelete: Cascade)
+  dailyReportId String
+  data          Bytes
+  contentType   String
+  createdAt     DateTime    @default(now())
+
+  @@index([dailyReportId])
+}
+
+// Field request → PM approval → vendor/PO → ordered → received → job cost.
+// A request stuck short of RECEIVED past its expected delivery date is what
+// the material-risk alert watches for.
+model MaterialRequest {
+  id                   String                @id @default(cuid())
+  job                  Job                   @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  jobId                String
+  description          String
+  quantity             Float
+  unit                 String
+  status               MaterialRequestStatus @default(REQUESTED)
+  vendor               String?
+  poNumber             String?
+  unitCost             Float?
+  totalCost            Float?
+  expectedDeliveryDate DateTime?
+  receivedDate         DateTime?
+  requestedBy          Worker?               @relation(fields: [requestedById], references: [id])
+  requestedById        String?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+}
+
+// Owned or rented equipment, assignable to jobs with a planned date range —
+// the source of both scheduling conflicts (same unit, overlapping jobs) and
+// actual equipment cost against budget.
+model Equipment {
+  id              String                @id @default(cuid())
+  name            String
+  type            String?
+  ownership       EquipmentOwnership    @default(OWNED)
+  dailyRentalCost Float?
+  active          Boolean               @default(true)
+  createdAt       DateTime              @default(now())
+  assignments     EquipmentAssignment[]
+}
+
+model EquipmentAssignment {
+  id               String    @id @default(cuid())
+  equipment        Equipment @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+  equipmentId      String
+  job              Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  jobId            String
+  startDate        DateTime
+  endDate          DateTime
+  actualPickupDate DateTime?
+  actualReturnDate DateTime?
+  downtimeNotes    String?
+  createdAt        DateTime  @default(now())
+
+  @@index([equipmentId, startDate, endDate])
+  @@index([jobId])
+}
+
+// Subcontract cost tracking — committed contract value vs. what's actually
+// been invoiced/paid, feeding job costing's subcontractor column.
+model SubcontractorCost {
+  id              String                  @id @default(cuid())
+  job             Job                     @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  jobId           String
+  vendor          String
+  description     String?
+  committedAmount Float
+  actualAmount    Float                   @default(0)
+  status          SubcontractorCostStatus @default(COMMITTED)
+  createdAt       DateTime                @default(now())
 }
