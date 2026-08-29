@@ -28,6 +28,9 @@ export default async function RootLayout({
               </Link>
               {session && (
                 <>
+                  <Link href="/today" className="text-sm text-slate-600 hover:text-slate-900 font-medium">
+                    Today
+                  </Link>
                   <Link href="/jobs" className="text-sm text-slate-600 hover:text-slate-900">
                     Jobs
                   </Link>

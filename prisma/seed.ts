@@ -526,21 +526,36 @@ async function main() {
     },
   });
 
-  // Day 1 (excavation, came in at/under estimate) and days 3-5 (slab pours,
-  // trending over estimate — labor overrun surfaces as a real, computed
-  // exception rather than a hand-authored one).
+  // Five daily reports, each created the way lib/daily-report-actions.ts
+  // creates one — production entries, the material request, and the change
+  // order all link back to the report that generated them (dailyReportId /
+  // sourceDailyReportId), the same as a real foreman submission would.
+  const sunriseDay1 = await prisma.dailyReport.create({
+    data: {
+      jobId: sunriseDuplex.id,
+      date: addDays(projectStart, 0),
+      crewSize: 2,
+      workCompleted: "Excavation and layout complete",
+      submittedById: diego.id,
+    },
+  });
+  // Day 1 — excavation comes in at/under estimate.
   await prisma.productionEntry.create({
-    data: { jobCostCodeId: sunriseExcavation.id, date: addDays(projectStart, 0), hours: 22, quantity: 40, crewSize: 2, enteredById: diego.id },
+    data: {
+      jobCostCodeId: sunriseExcavation.id,
+      dailyReportId: sunriseDay1.id,
+      date: sunriseDay1.date,
+      hours: 22,
+      quantity: 40,
+      crewSize: 2,
+      enteredById: diego.id,
+    },
   });
-  await prisma.productionEntry.createMany({
-    data: [
-      { jobCostCodeId: sunriseSlab.id, date: addDays(projectStart, 2), hours: 15, quantity: 15, crewSize: 2, enteredById: diego.id },
-      { jobCostCodeId: sunriseSlab.id, date: addDays(projectStart, 3), hours: 15, quantity: 15, crewSize: 2, enteredById: diego.id },
-      { jobCostCodeId: sunriseSlab.id, date: addDays(projectStart, 4), hours: 15, quantity: 14, crewSize: 2, enteredById: diego.id, notes: "Rain delay cut the afternoon pour short" },
-    ],
-  });
+  await prisma.dailyReport.update({ where: { id: sunriseDay1.id }, data: { hours: 22, quantityInstalled: "40 CY Excavation" } });
 
-  const sunriseChangeReport = await prisma.dailyReport.create({
+  // Day 2 — one report flags BOTH a change condition and a material
+  // shortage; both become real records automatically, not just a note.
+  const sunriseDay2 = await prisma.dailyReport.create({
     data: {
       jobId: sunriseDuplex.id,
       date: addDays(projectStart, 1),
@@ -548,85 +563,137 @@ async function main() {
       hours: 16,
       workCompleted: "Set forms, placed rebar for footings",
       blockers: "Found an old abandoned footing not shown on the plans at the north corner",
+      materialNeeded: "Short 3 tons #4 rebar for the slab pour — original delivery undercounted",
       hasChangeCondition: true,
       changeConditionNotes: "Demo and removal of undocumented footing before forms can be set at the north corner",
       submittedById: diego.id,
     },
   });
-  await prisma.dailyReport.createMany({
-    data: [
-      {
-        jobId: sunriseDuplex.id,
-        date: addDays(projectStart, 0),
-        crewSize: 2,
-        hours: 22,
-        workCompleted: "Excavation and layout complete",
-        quantityInstalled: "40 CY excavated",
-        submittedById: diego.id,
-      },
-      {
-        jobId: sunriseDuplex.id,
-        date: addDays(projectStart, 2),
-        crewSize: 2,
-        hours: 15,
-        workCompleted: "Poured footings and started slab section A",
-        quantityInstalled: "15 CY slab",
-        submittedById: diego.id,
-      },
-      {
-        jobId: sunriseDuplex.id,
-        date: addDays(projectStart, 3),
-        crewSize: 2,
-        hours: 15,
-        workCompleted: "Poured slab section B",
-        quantityInstalled: "15 CY slab",
-        submittedById: diego.id,
-      },
-      {
-        jobId: sunriseDuplex.id,
-        date: addDays(projectStart, 4),
-        crewSize: 2,
-        hours: 15,
-        workCompleted: "Poured slab section C, cut short by rain",
-        quantityInstalled: "14 CY slab",
-        tomorrowPlan: "Finish remaining slab area, weather permitting",
-        submittedById: diego.id,
-      },
-    ],
+  await prisma.materialRequest.create({
+    data: {
+      jobId: sunriseDuplex.id,
+      description: "Short 3 tons #4 rebar for the slab pour — original delivery undercounted",
+      quantity: 3,
+      unit: "TON",
+      status: "ORDERED",
+      vendor: "Metro Rebar & Supply",
+      poNumber: "PO-2205",
+      unitCost: 1180,
+      totalCost: 3540,
+      expectedDeliveryDate: addDays(projectStart, 3), // now in the past — overdue
+      requestedById: diego.id,
+      sourceDailyReportId: sunriseDay2.id,
+    },
+  });
+  await prisma.changeOrder.create({
+    data: {
+      jobId: sunriseDuplex.id,
+      title: "Demo and removal of undocumented footing before forms can be set at the",
+      description: "Demo and removal of undocumented footing before forms can be set at the north corner",
+      sourceDailyReportId: sunriseDay2.id,
+      createdById: diego.id,
+    },
   });
 
-  // Material: concrete already delivered; rebar order is now overdue —
-  // a real MATERIAL_RISK exception, not a scripted one.
-  await prisma.materialRequest.createMany({
-    data: [
-      {
-        jobId: sunriseDuplex.id,
-        description: "Ready-mix concrete, 3500 PSI",
-        quantity: 60,
-        unit: "CY",
-        status: "RECEIVED",
-        vendor: "Summit Concrete Supply",
-        poNumber: "PO-2201",
-        unitCost: 162,
-        totalCost: 9720,
-        expectedDeliveryDate: addDays(projectStart, 2),
-        receivedDate: addDays(projectStart, 2),
-        requestedById: diego.id,
-      },
-      {
-        jobId: sunriseDuplex.id,
-        description: "#4 rebar, footings and slab",
-        quantity: 3,
-        unit: "TON",
-        status: "ORDERED",
-        vendor: "Metro Rebar & Supply",
-        poNumber: "PO-2205",
-        unitCost: 1180,
-        totalCost: 3540,
-        expectedDeliveryDate: addDays(projectStart, 3), // now in the past — overdue
-        requestedById: diego.id,
-      },
-    ],
+  // Day 3 — the slab pour starts and runs hot (the labor slip begins).
+  const sunriseDay3 = await prisma.dailyReport.create({
+    data: {
+      jobId: sunriseDuplex.id,
+      date: addDays(projectStart, 2),
+      crewSize: 2,
+      workCompleted: "Poured footings and started slab section A",
+      submittedById: diego.id,
+    },
+  });
+  await prisma.productionEntry.create({
+    data: {
+      jobCostCodeId: sunriseSlab.id,
+      dailyReportId: sunriseDay3.id,
+      date: sunriseDay3.date,
+      hours: 15,
+      quantity: 15,
+      crewSize: 2,
+      enteredById: diego.id,
+    },
+  });
+  await prisma.dailyReport.update({ where: { id: sunriseDay3.id }, data: { hours: 15, quantityInstalled: "15 CY Concrete slab on grade" } });
+
+  // Day 4 — the shortage resolves and the change order is priced/approved
+  // same day: the recovery, driven by the PM acting on what day 2 opened.
+  await prisma.materialRequest.updateMany({
+    where: { jobId: sunriseDuplex.id, sourceDailyReportId: sunriseDay2.id },
+    data: { status: "RECEIVED", receivedDate: addDays(projectStart, 3) },
+  });
+  await prisma.changeOrder.updateMany({
+    where: { jobId: sunriseDuplex.id, sourceDailyReportId: sunriseDay2.id },
+    data: { status: "APPROVED", revenueAmount: 2600, costAmount: 1700, approvedAt: addDays(projectStart, 3) },
+  });
+  const sunriseDay4 = await prisma.dailyReport.create({
+    data: {
+      jobId: sunriseDuplex.id,
+      date: addDays(projectStart, 3),
+      crewSize: 2,
+      workCompleted: "Rebar arrived, poured slab section B — back on a normal pace",
+      submittedById: diego.id,
+    },
+  });
+  await prisma.productionEntry.create({
+    data: {
+      jobCostCodeId: sunriseSlab.id,
+      dailyReportId: sunriseDay4.id,
+      date: sunriseDay4.date,
+      hours: 15,
+      quantity: 15,
+      crewSize: 2,
+      enteredById: diego.id,
+    },
+  });
+  await prisma.dailyReport.update({ where: { id: sunriseDay4.id }, data: { hours: 15, quantityInstalled: "15 CY Concrete slab on grade" } });
+
+  // Day 5 (today) — continued recovery, plus a fresh equipment issue so the
+  // EQUIPMENT_ISSUE alert has something live and unresolved to show.
+  const sunriseDay5 = await prisma.dailyReport.create({
+    data: {
+      jobId: sunriseDuplex.id,
+      date: addDays(projectStart, 4),
+      crewSize: 2,
+      workCompleted: "Poured slab section C, cut short by rain",
+      equipmentIssue: "Pump truck losing prime intermittently, slowing today's pour",
+      tomorrowPlan: "Finish remaining slab area, weather permitting",
+      submittedById: diego.id,
+    },
+  });
+  await prisma.productionEntry.create({
+    data: {
+      jobCostCodeId: sunriseSlab.id,
+      dailyReportId: sunriseDay5.id,
+      date: sunriseDay5.date,
+      hours: 15,
+      quantity: 14,
+      crewSize: 2,
+      enteredById: diego.id,
+      notes: "Rain delay cut the afternoon pour short",
+    },
+  });
+  await prisma.dailyReport.update({ where: { id: sunriseDay5.id }, data: { hours: 15, quantityInstalled: "14 CY Concrete slab on grade" } });
+
+  // Ready-mix concrete was ordered by the PM at award time, not field-flagged
+  // — a realistic mix of PM-initiated and field-initiated procurement.
+  await prisma.materialRequest.create({
+    data: {
+      jobId: sunriseDuplex.id,
+      description: "Ready-mix concrete, 3500 PSI",
+      quantity: 60,
+      unit: "CY",
+      status: "RECEIVED",
+      vendor: "Summit Concrete Supply",
+      poNumber: "PO-2201",
+      unitCost: 162,
+      totalCost: 9720,
+      expectedDeliveryDate: addDays(projectStart, 2),
+      receivedDate: addDays(projectStart, 2),
+      requestedById: diego.id,
+    },
   });
 
   const miniExcavator = await prisma.equipment.create({
@@ -663,6 +730,238 @@ async function main() {
       committedAmount: 2800,
       actualAmount: 1400,
       status: "INVOICED",
+    },
+  });
+
+  // --- A second small-crew project, already closed out, on fixed (not
+  // "today"-relative) dates — so the full award-to-closeout arc is visible
+  // any time the app is viewed rather than only mid-project like Sunrise
+  // Duplex above: a labor slip, a material shortage, a change condition,
+  // recovery from all three, and billing readiness actually reaching
+  // "ready to invoice" with a paid invoice at the end. ---
+
+  const tasha = await prisma.worker.create({
+    data: { companyId: company.id, name: "Tasha Coleman", role: "Concrete Foreman", phone: "555-0403", laborRate: 56 },
+  });
+  const reggie = await prisma.worker.create({
+    data: { companyId: company.id, name: "Reggie Lin", role: "Laborer", phone: "555-0404", laborRate: 32 },
+  });
+  const ferrisResidence = await prisma.customer.create({
+    data: { companyId: company.id, name: "Ferris Residence", address: "77 Cedar Court", phone: "555-0501" },
+  });
+
+  const cedarStart = new Date("2026-08-03");
+  const cedarEnd = new Date("2026-08-09");
+
+  const cedarCourt = await prisma.job.create({
+    data: {
+      companyId: company.id,
+      divisionId: fieldOps.id,
+      jobNumber: `${SEED_YEAR}-006`,
+      title: "Cedar Court — Patio & Walkway Slab",
+      description: "Excavation and slab-on-grade for a backyard patio and connecting walkway",
+      address: "77 Cedar Court",
+      status: "COMPLETED",
+      customerId: ferrisResidence.id,
+      assignments: { create: [{ workerId: tasha.id }, { workerId: reggie.id }] },
+      contractValue: 28500,
+      pmUserId: priya.id,
+      foremanWorkerId: tasha.id,
+      targetStartDate: cedarStart,
+      targetEndDate: cedarEnd,
+      stage: "COMPLETE",
+      punchListComplete: true,
+      requiredDocsComplete: true,
+    },
+  });
+
+  for (const stage of ["PRECON", "MOBILIZATION", "ACTIVE", "PUNCH_LIST", "CLOSEOUT", "COMPLETE"] as const) {
+    await generateChecklistForStage(prisma, cedarCourt.id, stage);
+  }
+  await prisma.jobChecklistItem.updateMany({
+    where: { jobId: cedarCourt.id },
+    data: { done: true, doneAt: cedarEnd, doneById: tasha.id },
+  });
+
+  await prisma.jobBudget.createMany({
+    data: [
+      { jobId: cedarCourt.id, category: "LABOR", estimatedAmount: 3200 },
+      { jobId: cedarCourt.id, category: "MATERIAL", estimatedAmount: 6800 },
+      { jobId: cedarCourt.id, category: "EQUIPMENT", estimatedAmount: 900 },
+      { jobId: cedarCourt.id, category: "SUBCONTRACTOR", estimatedAmount: 1200 },
+    ],
+  });
+
+  await prisma.scheduleAssignment.createMany({
+    data: Array.from({ length: 7 }, (_, i) => i).flatMap((offset) => [
+      { workerId: tasha.id, jobId: cedarCourt.id, date: addDays(cedarStart, offset) },
+      { workerId: reggie.id, jobId: cedarCourt.id, date: addDays(cedarStart, offset) },
+    ]),
+  });
+
+  const cedarExcavation = await prisma.jobCostCode.create({
+    data: { jobId: cedarCourt.id, costCodeId: excavation.id, estimatedQty: 20, estimatedHours: 14 }, // 0.7 hrs/CY
+  });
+  const cedarSlab = await prisma.jobCostCode.create({
+    data: { jobId: cedarCourt.id, costCodeId: concreteSlab.id, estimatedQty: 35, estimatedHours: 30 }, // 0.857 hrs/CY
+  });
+
+  // Day 1 — excavation, on pace.
+  const cedarDay1 = await prisma.dailyReport.create({
+    data: { jobId: cedarCourt.id, date: addDays(cedarStart, 0), crewSize: 2, workCompleted: "Excavation and grading complete", submittedById: tasha.id },
+  });
+  await prisma.productionEntry.create({
+    data: { jobCostCodeId: cedarExcavation.id, dailyReportId: cedarDay1.id, date: cedarDay1.date, hours: 13, quantity: 20, crewSize: 2, enteredById: tasha.id },
+  });
+  await prisma.dailyReport.update({ where: { id: cedarDay1.id }, data: { hours: 13, quantityInstalled: "20 CY Excavation" } });
+
+  // Day 2 — the shortage and the change condition both surface on one report.
+  const cedarDay2 = await prisma.dailyReport.create({
+    data: {
+      jobId: cedarCourt.id,
+      date: addDays(cedarStart, 1),
+      crewSize: 2,
+      hours: 12,
+      workCompleted: "Set forms, began rebar placement",
+      blockers: "Waiting on additional rebar before the slab pour can start",
+      materialNeeded: "Short 2 tons #4 rebar — original delivery undercounted",
+      hasChangeCondition: true,
+      changeConditionNotes: "Found a buried irrigation line not shown on plans, needs reroute before the slab pour",
+      submittedById: tasha.id,
+    },
+  });
+  await prisma.materialRequest.create({
+    data: {
+      jobId: cedarCourt.id,
+      description: "Short 2 tons #4 rebar — original delivery undercounted",
+      quantity: 2,
+      unit: "TON",
+      status: "ORDERED",
+      vendor: "Metro Rebar & Supply",
+      poNumber: "PO-3301",
+      unitCost: 1180,
+      totalCost: 2360,
+      expectedDeliveryDate: addDays(cedarStart, 3),
+      requestedById: tasha.id,
+      sourceDailyReportId: cedarDay2.id,
+    },
+  });
+  await prisma.changeOrder.create({
+    data: {
+      jobId: cedarCourt.id,
+      title: "Found a buried irrigation line not shown on plans, needs reroute before",
+      description: "Found a buried irrigation line not shown on plans, needs reroute before the slab pour",
+      sourceDailyReportId: cedarDay2.id,
+      createdById: tasha.id,
+    },
+  });
+
+  // Day 3 — the slip: rework on the irrigation line eats into pour time, and
+  // the pace on the slab that does get poured runs well over estimate.
+  const cedarDay3 = await prisma.dailyReport.create({
+    data: { jobId: cedarCourt.id, date: addDays(cedarStart, 2), crewSize: 2, workCompleted: "Rerouted irrigation line, began slab pour section A", submittedById: tasha.id },
+  });
+  await prisma.productionEntry.create({
+    data: { jobCostCodeId: cedarSlab.id, dailyReportId: cedarDay3.id, date: cedarDay3.date, hours: 11, quantity: 9, crewSize: 2, enteredById: tasha.id, notes: "Irrigation line rework cut into pour time" },
+  });
+  await prisma.dailyReport.update({ where: { id: cedarDay3.id }, data: { hours: 11, quantityInstalled: "9 CY Concrete slab on grade" } });
+
+  // Day 4 — recovery starts: rebar arrives, the change order is priced and
+  // approved, pace comes back close to estimate.
+  await prisma.materialRequest.updateMany({
+    where: { jobId: cedarCourt.id, sourceDailyReportId: cedarDay2.id },
+    data: { status: "RECEIVED", receivedDate: addDays(cedarStart, 3) },
+  });
+  await prisma.changeOrder.updateMany({
+    where: { jobId: cedarCourt.id, sourceDailyReportId: cedarDay2.id },
+    data: { status: "APPROVED", revenueAmount: 2200, costAmount: 1400, approvedAt: addDays(cedarStart, 3) },
+  });
+  const cedarDay4 = await prisma.dailyReport.create({
+    data: { jobId: cedarCourt.id, date: addDays(cedarStart, 3), crewSize: 2, workCompleted: "Rebar arrived, poured slab section B — back to a normal pace", submittedById: tasha.id },
+  });
+  await prisma.productionEntry.create({
+    data: { jobCostCodeId: cedarSlab.id, dailyReportId: cedarDay4.id, date: cedarDay4.date, hours: 9, quantity: 10, crewSize: 2, enteredById: tasha.id },
+  });
+  await prisma.dailyReport.update({ where: { id: cedarDay4.id }, data: { hours: 9, quantityInstalled: "10 CY Concrete slab on grade" } });
+
+  // Day 5 — continued recovery, slightly ahead of pace to help make up lost ground.
+  const cedarDay5 = await prisma.dailyReport.create({
+    data: { jobId: cedarCourt.id, date: addDays(cedarStart, 4), crewSize: 2, workCompleted: "Poured slab section C, caught back up to schedule", submittedById: tasha.id },
+  });
+  await prisma.productionEntry.create({
+    data: { jobCostCodeId: cedarSlab.id, dailyReportId: cedarDay5.id, date: cedarDay5.date, hours: 9, quantity: 11, crewSize: 2, enteredById: tasha.id },
+  });
+  await prisma.dailyReport.update({ where: { id: cedarDay5.id }, data: { hours: 9, quantityInstalled: "11 CY Concrete slab on grade" } });
+
+  // Day 6 — final pour, punch list walk begins.
+  const cedarDay6 = await prisma.dailyReport.create({
+    data: { jobId: cedarCourt.id, date: addDays(cedarStart, 5), crewSize: 2, workCompleted: "Finished slab pour section D, began punch list walk", submittedById: tasha.id },
+  });
+  await prisma.productionEntry.create({
+    data: { jobCostCodeId: cedarSlab.id, dailyReportId: cedarDay6.id, date: cedarDay6.date, hours: 5, quantity: 5, crewSize: 2, enteredById: tasha.id },
+  });
+  await prisma.dailyReport.update({ where: { id: cedarDay6.id }, data: { hours: 5, quantityInstalled: "5 CY Concrete slab on grade" } });
+
+  // Day 7 — punch list complete, ready for the customer walkthrough.
+  await prisma.dailyReport.create({
+    data: {
+      jobId: cedarCourt.id,
+      date: addDays(cedarStart, 6),
+      crewSize: 2,
+      workCompleted: "Completed punch list items, site cleaned up, ready for walkthrough",
+      submittedById: tasha.id,
+    },
+  });
+
+  await prisma.materialRequest.create({
+    data: {
+      jobId: cedarCourt.id,
+      description: "Ready-mix concrete, 3500 PSI",
+      quantity: 35,
+      unit: "CY",
+      status: "RECEIVED",
+      vendor: "Cedar Ready Mix",
+      poNumber: "PO-3290",
+      unitCost: 160,
+      totalCost: 5600,
+      expectedDeliveryDate: addDays(cedarStart, 2),
+      receivedDate: addDays(cedarStart, 2),
+      requestedById: tasha.id,
+    },
+  });
+
+  const cedarMiniExcavator = await prisma.equipment.create({
+    data: { companyId: company.id, name: "Compact excavator", type: "Excavator", ownership: "RENTED", dailyRentalCost: 320 },
+  });
+  await prisma.equipmentAssignment.create({
+    data: {
+      equipmentId: cedarMiniExcavator.id,
+      jobId: cedarCourt.id,
+      startDate: cedarStart,
+      endDate: cedarStart,
+      actualPickupDate: cedarStart,
+      actualReturnDate: cedarStart,
+    },
+  });
+
+  await prisma.subcontractorCost.create({
+    data: {
+      jobId: cedarCourt.id,
+      vendor: "Precision Saw Cutting",
+      description: "Control joint saw-cutting",
+      committedAmount: 1200,
+      actualAmount: 1200,
+      status: "PAID",
+    },
+  });
+
+  await prisma.invoice.create({
+    data: {
+      jobId: cedarCourt.id,
+      invoiceNumber: "INV-3001",
+      amount: 30700, // original contract + the approved change order
+      date: new Date("2026-08-11"),
+      status: "PAID",
     },
   });
 

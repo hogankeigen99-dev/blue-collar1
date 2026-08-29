@@ -3,7 +3,7 @@
 import { scopedPrisma } from "@/lib/tenant";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { requireRole, requireSession } from "@/lib/session";
+import { requireRole } from "@/lib/session";
 import { parseCsv } from "@/lib/csv";
 
 function str(formData: FormData, key: string): string | undefined {
@@ -121,39 +121,4 @@ export async function importJobCostCodesCsv(formData: FormData) {
   const params = new URLSearchParams({ imported: String(imported) });
   if (skipped.length > 0) params.set("skipped", skipped.join(", "));
   redirect(`/jobs/${jobId}?${params.toString()}`);
-}
-
-export async function logProduction(formData: FormData) {
-  const session = await requireSession(); // foreman's core workflow — any signed-in role
-  const prisma = scopedPrisma(session.companyId);
-  const jobId = str(formData, "jobId");
-  const jobCostCodeId = str(formData, "jobCostCodeId");
-  const dateRaw = str(formData, "date");
-  const hours = num(formData, "hours");
-  const quantity = num(formData, "quantity");
-  const crewSize = num(formData, "crewSize");
-  if (!jobId || !jobCostCodeId || !dateRaw || hours === undefined || quantity === undefined) {
-    throw new Error("Cost code, date, hours, and quantity are required");
-  }
-
-  // ProductionEntry is a child of JobCostCode/Job — verify the job belongs
-  // to this company and the cost code line belongs to that job.
-  await prisma.job.findFirstOrThrow({ where: { id: jobId } });
-  const jcc = await prisma.jobCostCode.findFirst({ where: { id: jobCostCodeId, jobId } });
-  if (!jcc) throw new Error("Job cost code not found");
-
-  await prisma.productionEntry.create({
-    data: {
-      jobCostCodeId,
-      date: new Date(dateRaw),
-      hours,
-      quantity,
-      crewSize: crewSize !== undefined ? Math.round(crewSize) : undefined,
-      notes: str(formData, "notes"),
-      enteredById: str(formData, "enteredById"),
-    },
-  });
-
-  revalidatePath(`/jobs/${jobId}`);
-  redirect(`/jobs/${jobId}`);
 }

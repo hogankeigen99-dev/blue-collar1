@@ -389,20 +389,26 @@ model JobCostCode {
 // A single day's field-reported labor and quantity-installed against a
 // job's cost code budget line. This is the daily foreman input that closes
 // the field-to-cost feedback loop same-day instead of on a payroll cycle.
+// Normally created (and, on resubmission, wholesale replaced) alongside a
+// DailyReport by lib/daily-report-actions.ts — dailyReportId is nullable
+// only so older/seeded entries logged without a report stay valid.
 model ProductionEntry {
-  id            String      @id @default(cuid())
-  jobCostCode   JobCostCode @relation(fields: [jobCostCodeId], references: [id], onDelete: Cascade)
+  id            String       @id @default(cuid())
+  jobCostCode   JobCostCode  @relation(fields: [jobCostCodeId], references: [id], onDelete: Cascade)
   jobCostCodeId String
+  dailyReport   DailyReport? @relation(fields: [dailyReportId], references: [id], onDelete: Cascade)
+  dailyReportId String?
   date          DateTime
   crewSize      Int?
   hours         Float
   quantity      Float
   notes         String?
-  enteredBy     Worker?     @relation(fields: [enteredById], references: [id])
+  enteredBy     Worker?      @relation(fields: [enteredById], references: [id])
   enteredById   String?
-  createdAt     DateTime    @default(now())
+  createdAt     DateTime     @default(now())
 
   @@index([jobCostCodeId])
+  @@index([dailyReportId])
 }
 
 // One worker's job assignment for one calendar day — the crew scheduling
@@ -479,8 +485,10 @@ model DailyReport {
   submittedById        String?
   createdAt            DateTime @default(now())
 
-  photos       DailyReportPhoto[]
-  changeOrders ChangeOrder[]
+  photos            DailyReportPhoto[]
+  changeOrders      ChangeOrder[]
+  productionEntries ProductionEntry[]
+  materialRequests  MaterialRequest[]
 
   @@unique([jobId, date])
   @@index([jobId, date])
@@ -502,7 +510,11 @@ model DailyReportPhoto {
 
 // Field request → PM approval → vendor/PO → ordered → received → job cost.
 // A request stuck short of RECEIVED past its expected delivery date is what
-// the material-risk alert watches for.
+// the material-risk alert watches for. Most requests originate automatically
+// from a daily report's "material needed" note (lib/daily-report-actions.ts)
+// rather than a separate PM-typed entry — sourceDailyReportId links back to
+// that origin; it's left null (not cascade-deleted) if the report is ever
+// removed, since the request may already carry a real vendor/PO commitment.
 model MaterialRequest {
   id                   String                @id @default(cuid())
   job                  Job                   @relation(fields: [jobId], references: [id], onDelete: Cascade)
@@ -517,6 +529,8 @@ model MaterialRequest {
   totalCost            Float?
   expectedDeliveryDate DateTime?
   receivedDate         DateTime?
+  sourceDailyReport    DailyReport?          @relation(fields: [sourceDailyReportId], references: [id])
+  sourceDailyReportId  String?
   requestedBy          Worker?               @relation(fields: [requestedById], references: [id])
   requestedById        String?
   createdAt            DateTime              @default(now())

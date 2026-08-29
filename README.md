@@ -35,31 +35,52 @@ accounting.
   budget-vs-actual, approved change orders, current contract value,
   projected final cost/gross profit/margin, billing readiness, and current
   exceptions — all on one page, meant to be readable in about 10 seconds.
-- **Field input drives everything downstream automatically.** A foreman
-  logging a daily report or production entry (`/jobs/[id]/log`,
-  `/jobs/[id]/daily-reports/new`) is the *only* place that data is entered —
-  actual labor hours/cost, schedule %, production %, and exceptions on the
-  Command Center all recompute from it live. Nothing is re-typed into a
-  separate "job cost" screen.
+- **One daily report is the foreman's entire day — nothing entered twice.**
+  `/jobs/[id]/daily-reports/new` (`lib/daily-report-actions.ts`) is the only
+  place hours, quantity, materials, equipment problems, and change
+  conditions are entered; there is no separate "log production" screen.
+  One submission:
+  - writes labor/quantity straight to `ProductionEntry` for each cost code
+    worked that day (resubmitting the same date replaces those entries
+    rather than adding to them), which is what actual labor hours/cost,
+    Schedule %/Production %, job costing, projected margin, and the labor-
+    overrun alert all read from — automatically, with no separate cost entry;
+  - opens a `MaterialRequest` from a "material needed" note, instead of a PM
+    having to notice the note and re-key it;
+  - opens a pending `ChangeOrder` from a flagged change condition, instead of
+    a flag someone has to remember to act on;
+  - surfaces an equipment problem as a live PM exception.
+- **The PM Daily Command** (`/today`, `lib/pm-daily-command.ts`) is the
+  start-of-day view across every job: for each open exception, what it is,
+  why it matters, the impact of leaving it, what to do about it, who owns
+  it, and when it's due — not just a bare alert list.
 - **Exceptions are computed, not manually flagged** (`lib/alerts.ts`):
   labor overruns, schedule risk, missing field reports, material risk, crew
-  conflicts, unapproved change work, billing blockers, and margin risk are
-  all derived from the same underlying field/cost data — company-wide at
-  `/alerts`, or scoped to one job (`getJobAlerts`) on its Command Center.
-- **A realistic demo project** is included in the seed data (`prisma/seed.ts`
-  — "Sunrise Duplex — Foundation & Slab"): a 2-3 person crew, 7-day project
-  seeded mid-stream (today is day 5 of 7) with real daily reports, production
-  entries trending over the labor estimate, an overdue material order, and a
-  field-flagged change condition — so a fresh seed immediately shows a live
-  labor overrun, a material risk, and an unapproved change work exception on
-  the Command Center, not an empty or hand-scripted screen.
+  conflicts, unapproved change work, billing blockers, margin risk, and
+  equipment issues are all derived from the same underlying field/cost
+  data — company-wide at `/alerts`, prioritized for action at `/today`, or
+  scoped to one job (`getJobAlerts`) on its Command Center.
+- **Two realistic demo projects** ship in the seed data (`prisma/seed.ts`).
+  "Sunrise Duplex — Foundation & Slab" is seeded mid-stream (today is day 5
+  of 7) with real daily reports — a labor slip, a material shortage and its
+  recovery, a field-flagged change condition, and a fresh equipment issue —
+  so a fresh seed immediately shows live, computed exceptions on the
+  Command Center and `/today`, not an empty or hand-scripted screen. "Cedar
+  Court — Patio & Walkway Slab" is the same story already closed out on
+  fixed dates: a labor slip and a material shortage that both recover, a
+  change condition that gets priced and approved, and billing readiness
+  actually reaching "ready to invoice" with a paid invoice — so the
+  *positive* outcome of the workflow is visible too, not only jobs still in
+  trouble.
 
-This workflow was validated end to end with a live Playwright run through
-the real UI: award → setup → schedule → mobilize → daily field updates →
-production → job cost auto-update → exception detection → change order
-(field-flagged → priced → approved, contract value updates) → materials
-(request → received) → completion → billing ready → invoice → closeout,
-with no page errors and no duplicate data entry required at any step.
+This workflow is covered by a real, checked-in Playwright E2E suite
+(`tests/e2e/`, `npm run test:e2e`) — award → setup → schedule → mobilize →
+daily field update → job cost auto-update → exception detection → change
+order (field-flagged → priced → approved, contract value updates) →
+materials (auto-request → received) → completion → billing ready → invoice
+→ closeout, plus dedicated coverage that one report submission drives
+labor/materials/change-orders/exceptions with no duplicate entry, and that
+`/today` answers all six PM Daily Command questions for a real exception.
 
 ## Stack
 
@@ -126,17 +147,21 @@ with no page errors and no duplicate data entry required at any step.
   priced from real logged hours × each worker's rate and projected from the
   job's current productivity burn rate; the rest use committed/actual data
   from the workflows below. A budget can be set per category from the job page.
-- **Daily field reports** (`/jobs/[id]/daily-reports`): one fast form per job
-  per day — crew size, hours, quantity installed, work completed, photos,
-  blockers, material needed, equipment issue, safety issue, change condition,
-  delay reason, and tomorrow's plan. Submitting again for the same date
-  updates it in place.
-- **Change orders** (`/jobs/[id]/change-orders`): field flags a change
-  condition on a daily report → becomes a change order → PM prices it →
-  approval adds the revenue and cost into job costing automatically.
-- **Materials & procurement** (`/jobs/[id]/materials`): field request → PM
-  approval → vendor/PO → ordered → received, with vendor, PO #, and cost
-  tracked at each step.
+- **Daily field reports** (`/jobs/[id]/daily-reports/new`): one fast form per
+  job per day — crew size, labor/quantity per cost code (writes straight to
+  `ProductionEntry`, driving job cost automatically), work completed,
+  photos, blockers, material needed, equipment issue, safety issue, change
+  condition, delay reason, and tomorrow's plan. Submitting again for the
+  same date updates it in place — no separate production-log step. See
+  "Primary use case" above for what a material need, an equipment issue,
+  and a change condition on this form each set in motion automatically.
+- **Change orders** (`/jobs/[id]/change-orders`): a flagged change condition
+  opens one automatically (`IDENTIFIED`) → PM prices it → approval adds the
+  revenue and cost into job costing automatically.
+- **Materials & procurement** (`/jobs/[id]/materials`): a field-flagged need
+  opens a request automatically, or a PM can start one directly → approval →
+  vendor/PO → ordered → received, with vendor, PO #, and cost tracked at
+  each step.
 - **Equipment** (`/equipment`): assign owned/rented equipment to jobs for a
   date range, track actual pickup/return and downtime, and see cost against
   budget. Overlapping assignments for the same equipment are flagged, not
@@ -338,6 +363,23 @@ cookies, so use a different value per environment and never commit a real one.
 
 These are local/dev seed data only — never reuse them for a real deployment.
 
+### End-to-end tests
+
+```bash
+npx prisma migrate reset --force   # fresh schema + seed data the tests read
+npm run dev                        # in one terminal
+npm run test:e2e                   # in another — runs tests/e2e/*.spec.ts headless
+```
+
+Covers the small-crew-project workflow end to end: the award → setup →
+schedule → mobilize → daily update → job cost → exception detection →
+change order → materials → completion → billing ready → invoice → closeout
+lifecycle; that one daily report drives labor/materials/change-orders/
+exceptions automatically with no duplicate entry; and that `/today` answers
+its six questions for a real exception. Tests are safe to re-run without
+resetting between runs (dates are generated fresh each run) but are most
+meaningful right after a reset, against the seed data they're written for.
+
 ## Deploying
 
 ### Railway
@@ -393,7 +435,6 @@ proxy.ts                      Route protection — redirects signed-out requests
 lib/prisma.ts                 Shared Prisma client
 lib/actions.ts                 Server Actions for jobs/workers/customers
 lib/productivity.ts            Variance/status calc + historical productivity query
-lib/productivity-actions.ts    Server Actions for cost codes/budget lines/production entries/CSV import
 lib/schedule.ts                Week/date helpers + per-job color coding for the schedule grid
 lib/schedule-actions.ts        Server Action to assign a worker's day (or a multi-day range),
                                 warning on unavailability/displacement without blocking
@@ -405,17 +446,30 @@ lib/session.ts                 getSession/requireSession/requireRole/requirePage
 lib/csv.ts                     Small CSV parser for the budget-line importer
 lib/job-costing.ts              Estimated/committed/actual/projected cost rollup per job
 lib/billing.ts                  Billing-readiness checklist computation
-lib/alerts.ts                   Exception-alert scan across all jobs, surfaced on /alerts + dashboard
+lib/alerts.ts                   Exception-alert scan across all jobs, surfaced on /alerts, /today + dashboard
 lib/format.ts                   Shared money/date formatting + stage/category labels
 lib/command-center-actions.ts   Server Actions for job command-center fields + category budgets
-lib/daily-report-actions.ts     Server Action for daily field reports (with photo upload)
-lib/materials-actions.ts        Server Actions for material requests
+lib/award-actions.ts            Server Action for the one-pass "award a project" flow (/jobs/new)
+lib/job-number.ts               Next "{year}-{seq}" project number per company
+lib/project-health.ts           Consolidated Command Center data (schedule %/production %/labor
+                                 variance/cost categories/change orders/billing/exceptions) in one fetch
+lib/pm-daily-command.ts         Enriches getAlerts() with why/impact/action/owner/due for /today
+lib/daily-report-actions.ts     Server Action for daily field reports — the single place labor/quantity
+                                 (writes ProductionEntry), material needs, equipment issues, and change
+                                 conditions are entered, with photo upload
+lib/materials-actions.ts        Server Actions for cost codes/budget lines/CSV import
+lib/productivity-actions.ts     Server Actions for material requests and status updates
 lib/equipment-actions.ts        Server Actions for equipment + job assignment (with conflict warning)
 lib/change-order-actions.ts     Server Actions for change orders
 lib/subcontractor-actions.ts    Server Actions for subcontractor costs
 app/api/photos/[id]/route.ts    Serves daily-report photo bytes (stored in Postgres)
+app/today/                      PM Daily Command
 prisma/schema.prisma  Data model
-prisma/seed.ts        Sample data, demo login accounts, and a full job-costing/field-ops demo scenario
+prisma/seed.ts        Sample data, demo login accounts, and two small-crew-project demo scenarios
+                       (Sunrise Duplex live mid-project, Cedar Court closed out) plus a full
+                       job-costing/field-ops demo scenario (Riverside Phase 2)
+tests/e2e/             Playwright E2E suite for the small-crew-project workflow (npm run test:e2e)
+playwright.config.ts   E2E test runner config
 railway.json          Railway build/deploy config
 .github/workflows/    CI
 ```

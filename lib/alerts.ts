@@ -12,7 +12,8 @@ export type AlertType =
   | "CREW_CONFLICT"
   | "UNAPPROVED_CHANGE_WORK"
   | "BILLING_BLOCKER"
-  | "MARGIN_RISK";
+  | "MARGIN_RISK"
+  | "EQUIPMENT_ISSUE";
 
 export type Alert = {
   type: AlertType;
@@ -31,10 +32,12 @@ export const ALERT_TYPE_LABEL: Record<AlertType, string> = {
   UNAPPROVED_CHANGE_WORK: "Unapproved change work",
   BILLING_BLOCKER: "Billing blocker",
   MARGIN_RISK: "Margin risk",
+  EQUIPMENT_ISSUE: "Equipment issue",
 };
 
 const DAY_MS = 86_400_000;
 const MARGIN_WARNING_PCT = 0.1;
+const EQUIPMENT_ISSUE_WINDOW_DAYS = 3;
 
 const jobWithAlertIncludes = {
   assignments: true,
@@ -151,7 +154,10 @@ async function computeJobAlerts(
     });
   }
 
-  // Unapproved change work — field flagged a change condition, no change order created yet.
+  // Unapproved change work — field flagged a change condition that hasn't
+  // become a change order yet (a legacy/manual gap — lib/daily-report-actions.ts
+  // now opens one automatically), or a change order exists but hasn't
+  // reached approval (IDENTIFIED/PRICED/SUBMITTED all still need PM action).
   const flaggedReports = await prisma.dailyReport.findMany({
     where: { jobId: job.id, hasChangeCondition: true, changeOrders: { none: {} } },
   });
@@ -164,14 +170,40 @@ async function computeJobAlerts(
       message: `Change condition flagged on ${r.date.toISOString().slice(0, 10)} hasn't become a change order yet`,
     });
   }
-  const pendingCOs = job.changeOrders.filter((co) => co.status === "SUBMITTED");
+  const CO_STATUS_DESCRIPTION: Record<string, string> = {
+    IDENTIFIED: "identified but not yet priced",
+    PRICED: "priced but not yet submitted for approval",
+    SUBMITTED: "submitted and awaiting approval",
+  };
+  const pendingCOs = job.changeOrders.filter((co) => co.status in CO_STATUS_DESCRIPTION);
   for (const co of pendingCOs) {
     alerts.push({
       type: "UNAPPROVED_CHANGE_WORK",
       severity: "warning",
       jobId: job.id,
       jobTitle: job.title,
-      message: `Change order "${co.title}" is submitted and awaiting approval`,
+      message: `Change order "${co.title}" is ${CO_STATUS_DESCRIPTION[co.status]}`,
+    });
+  }
+
+  // Equipment issue — flagged on a recent daily report and not yet resolved
+  // by a later one, so a PM sees it without reading through every report.
+  const recentEquipmentIssues = await prisma.dailyReport.findMany({
+    where: {
+      jobId: job.id,
+      equipmentIssue: { not: null },
+      date: { gte: new Date(now - EQUIPMENT_ISSUE_WINDOW_DAYS * DAY_MS) },
+    },
+    orderBy: { date: "desc" },
+  });
+  for (const r of recentEquipmentIssues) {
+    const daysAgo = Math.floor((now - r.date.getTime()) / DAY_MS);
+    alerts.push({
+      type: "EQUIPMENT_ISSUE",
+      severity: daysAgo >= 2 ? "critical" : "warning",
+      jobId: job.id,
+      jobTitle: job.title,
+      message: `Equipment issue flagged ${daysAgo <= 0 ? "today" : `${daysAgo} day(s) ago`}: ${r.equipmentIssue}`,
     });
   }
 

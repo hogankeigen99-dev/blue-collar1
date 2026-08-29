@@ -12,7 +12,8 @@
     "db:deploy": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
     "db:backup": "bash scripts/backup.sh",
-    "db:restore": "bash scripts/restore.sh"
+    "db:restore": "bash scripts/restore.sh",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.122.0",
@@ -23,6 +24,7 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/node": "^20.14.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

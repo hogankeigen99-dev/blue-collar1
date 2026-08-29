@@ -246,6 +246,12 @@ export default async function JobDetailPage({
 
       {/* Sub-workflow links */}
       <div className="flex flex-wrap gap-3 text-sm">
+        <Link
+          href={`/jobs/${job.id}/daily-reports/new`}
+          className="bg-slate-900 text-white rounded-md px-3 py-1.5 hover:bg-slate-700"
+        >
+          + Daily update
+        </Link>
         <Link href={`/jobs/${job.id}/daily-reports`} className="bg-white border rounded-md px-3 py-1.5 hover:bg-slate-50">
           Daily reports
         </Link>
@@ -577,22 +583,26 @@ export default async function JobDetailPage({
 
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-medium">Labor productivity</h2>
-          <div className="flex gap-3 text-sm">
-            {canEstimate && (
-              <>
-                <Link href={`/jobs/${job.id}/cost-codes/new`} className="text-blue-600 hover:underline">
-                  + Add budget line
-                </Link>
-                <Link href={`/jobs/${job.id}/cost-codes/import`} className="text-blue-600 hover:underline">
-                  Import CSV
-                </Link>
-              </>
-            )}
-            <Link href={`/jobs/${job.id}/log`} className="text-blue-600 hover:underline">
-              + Log production
-            </Link>
+          <div>
+            <h2 className="text-lg font-medium">Labor productivity</h2>
+            <p className="text-xs text-slate-500">
+              Hours and quantity come from the crew&apos;s{" "}
+              <Link href={`/jobs/${job.id}/daily-reports/new`} className="text-blue-600 hover:underline">
+                daily report
+              </Link>{" "}
+              — there&apos;s no separate production log to fill out.
+            </p>
           </div>
+          {canEstimate && (
+            <div className="flex gap-3 text-sm flex-shrink-0">
+              <Link href={`/jobs/${job.id}/cost-codes/new`} className="text-blue-600 hover:underline">
+                + Add budget line
+              </Link>
+              <Link href={`/jobs/${job.id}/cost-codes/import`} className="text-blue-600 hover:underline">
+                Import CSV
+              </Link>
+            </div>
+          )}
         </div>
 
         {jobCostCodes.length === 0 ? (
