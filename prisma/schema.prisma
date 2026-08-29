@@ -771,6 +771,12 @@ model MaterialRequest {
   totalCost            Float?
   expectedDeliveryDate DateTime?
   receivedDate         DateTime?
+  // Received and paid are different facts — a received material is a real
+  // cost the moment it lands (job costing already treats it that way), but
+  // it isn't off the books until it's actually paid. Nullable: null means
+  // still outstanding (AP), the same "unset = not yet happened" shape as
+  // every other date field on this model. lib/cash.ts's AP aging reads it.
+  paidDate             DateTime?
   sourceDailyReport    DailyReport?          @relation(fields: [sourceDailyReportId], references: [id])
   sourceDailyReportId  String?
   requestedBy          Worker?               @relation(fields: [requestedById], references: [id])

@@ -79,6 +79,7 @@ export default async function MaterialsPage({
                     {r.poNumber ? ` · PO ${r.poNumber}` : ""}
                     {r.totalCost ? ` · ${formatMoney(r.totalCost)}` : ""}
                     {r.expectedDeliveryDate ? ` · expected ${formatDate(r.expectedDeliveryDate)}` : ""}
+                    {r.status === "RECEIVED" && r.totalCost ? ` · ${r.paidDate ? `paid ${formatDate(r.paidDate)}` : "unpaid"}` : ""}
                   </div>
                 </div>
                 <span className={`text-xs px-2 py-1 rounded-full ${STATUS_CLASSES[r.status]}`}>{r.status.replace("_", " ")}</span>
@@ -132,6 +133,10 @@ export default async function MaterialsPage({
                   <div>
                     <label className="block mb-1">Received</label>
                     <input name="receivedDate" type="date" defaultValue={toDateInputValue(r.receivedDate)} className="border rounded-md px-2 py-1" />
+                  </div>
+                  <div>
+                    <label className="block mb-1">Paid</label>
+                    <input name="paidDate" type="date" defaultValue={toDateInputValue(r.paidDate)} className="border rounded-md px-2 py-1" />
                   </div>
                   <button type="submit" className="bg-slate-900 text-white px-3 py-1.5 rounded-md hover:bg-slate-700">
                     Save

@@ -884,6 +884,10 @@ async function main() {
       totalCost: 9720,
       expectedDeliveryDate: addDays(projectStart, 2),
       receivedDate: addDays(projectStart, 2),
+      // PM-ordered and already paid — a paid material next to the
+      // still-outstanding rebar-shortage request above, real AP variety
+      // rather than everything on this job reading as unpaid by default.
+      paidDate: addDays(projectStart, 3),
       requestedById: diego.id,
     },
   });
@@ -1067,7 +1071,7 @@ async function main() {
   // approved, pace comes back close to estimate.
   await prisma.materialRequest.updateMany({
     where: { jobId: cedarCourt.id, sourceDailyReportId: cedarDay2.id },
-    data: { status: "RECEIVED", receivedDate: addDays(cedarStart, 3) },
+    data: { status: "RECEIVED", receivedDate: addDays(cedarStart, 3), paidDate: addDays(cedarStart, 9) },
   });
   await prisma.changeOrder.updateMany({
     where: { jobId: cedarCourt.id, sourceDailyReportId: cedarDay2.id },
@@ -1126,6 +1130,9 @@ async function main() {
       totalCost: 5600,
       expectedDeliveryDate: addDays(cedarStart, 2),
       receivedDate: addDays(cedarStart, 2),
+      // Closed out and fully paid — same narrative as the pay app and
+      // subcontract below, so nothing here should show up as outstanding AP.
+      paidDate: addDays(cedarStart, 9),
       requestedById: tasha.id,
     },
   });
@@ -1377,6 +1384,18 @@ async function main() {
       { contractLineId: oakridgeConstruction.id, scheduledValue: oakridgeConstruction.scheduledValue, priorPct: 0, newPct: 30 },
     ],
   });
+  // A second pay app, billed but not yet collected — real 0-30-bucket AR
+  // instead of every open invoice living on Riverside Phase 2 alone.
+  await seedPayApplication({
+    jobId: oakridge.id,
+    invoiceNumber: "INV-4002",
+    date: addDays(today, -3),
+    status: "SENT",
+    retainagePct: 10,
+    lines: [
+      { contractLineId: oakridgeConstruction.id, scheduledValue: oakridgeConstruction.scheduledValue, priorPct: 30, newPct: 55 },
+    ],
+  });
 
   // Project C — schedule risk only: production is reasonable, the calendar
   // has simply slipped past the target finish while the job is still open.
@@ -1459,8 +1478,19 @@ async function main() {
     ]),
   });
   // SOV set up at award; the schedule slip hasn't stopped billing from
-  // being possible, it just hasn't happened yet in this snapshot.
-  await seedContract(bayside.id, 210000, { retainagePct: 10, executedDate: addDays(today, -37) });
+  // being possible — one pay app went out early on, still unpaid over a
+  // month later, a real 31-60-bucket AR row instead of everything on this
+  // job reading as billing-ready-but-untouched.
+  const baysideContract = await seedContract(bayside.id, 210000, { retainagePct: 10, executedDate: addDays(today, -37) });
+  const [baysideMob] = baysideContract.lines;
+  await seedPayApplication({
+    jobId: bayside.id,
+    invoiceNumber: "INV-5001",
+    date: addDays(today, -32),
+    status: "SENT",
+    retainagePct: 10,
+    lines: [{ contractLineId: baysideMob.id, scheduledValue: baysideMob.scheduledValue, priorPct: 0, newPct: 100 }],
+  });
 
   // Project D — material risk only: labor's on pace, but a shingle order is
   // overdue and the crew can't close in the affected area without it.
@@ -1625,6 +1655,64 @@ async function main() {
     data: { wonJobId: fairviewFlooringJob.id },
   });
   await seedContract(fairviewFlooringJob.id, 52000, { retainagePct: 10, executedDate: addDays(today, -6) });
+
+  // Westgate Plaza — a minimal historical anchor (same pattern as the rebar
+  // history jobs above: no daily reports, just billing history) for one
+  // purpose only: a slow-paying owner on a job that's already finished, so
+  // the 61-90 and 90+ AR aging buckets have real rows instead of staying
+  // permanently empty in the demo.
+  const meridianRetail = await prisma.customer.create({
+    data: { companyId: company.id, name: "Meridian Retail Group", address: "88 Westgate Blvd", phone: "555-0900" },
+  });
+  const westgatePlaza = await prisma.job.create({
+    data: {
+      companyId: company.id,
+      divisionId: fieldOps.id,
+      jobNumber: `${SEED_YEAR}-015`,
+      title: "Westgate Plaza — Retail Shell",
+      address: "88 Westgate Blvd",
+      status: "COMPLETED",
+      projectType: "Commercial TI",
+      customerId: meridianRetail.id,
+      contractValue: 68000,
+      pmUserId: priya.id,
+      targetStartDate: addDays(today, -130),
+      targetEndDate: addDays(today, -100),
+      stage: "COMPLETE",
+    },
+  });
+  const westgateContract = await seedContract(westgatePlaza.id, 68000, { retainagePct: 10, executedDate: addDays(today, -132) });
+  const [westgateMob, westgateConstruction] = westgateContract.lines;
+  await seedPayApplication({
+    jobId: westgatePlaza.id,
+    invoiceNumber: "INV-6001",
+    date: addDays(today, -95),
+    status: "SENT",
+    retainagePct: 10,
+    lines: [{ contractLineId: westgateMob.id, scheduledValue: westgateMob.scheduledValue, priorPct: 0, newPct: 100 }],
+  });
+  await seedPayApplication({
+    jobId: westgatePlaza.id,
+    invoiceNumber: "INV-6002",
+    date: addDays(today, -78),
+    status: "SENT",
+    retainagePct: 10,
+    lines: [{ contractLineId: westgateConstruction.id, scheduledValue: westgateConstruction.scheduledValue, priorPct: 0, newPct: 100 }],
+  });
+  const westgateDrywall = await seedVendor(company.id, "Precision Drywall & Ceilings", { trade: "Drywall & ceilings", contactInfo: "555-0901" });
+  await prisma.subcontract.create({
+    data: {
+      jobId: westgatePlaza.id,
+      vendorId: westgateDrywall.id,
+      description: "Interior partition framing and ceiling grid",
+      committedAmount: 14000,
+      actualAmount: 14000,
+      status: "INVOICED",
+      agreementStatus: "EXECUTED",
+      executedDate: addDays(today, -70),
+      retainagePct: 5,
+    },
+  });
 
   await prisma.opportunity.create({
     data: {

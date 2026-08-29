@@ -66,6 +66,7 @@ export async function updateMaterialRequest(formData: FormData) {
 
   const receivedDateRaw = str(formData, "receivedDate");
   const expectedDeliveryRaw = str(formData, "expectedDeliveryDate");
+  const paidDateRaw = str(formData, "paidDate");
 
   const totalCost = num(formData, "totalCost");
   const vendorId = await resolveOrCreateVendorId(prisma, session.companyId, str(formData, "vendorId"), str(formData, "newVendorName"));
@@ -79,6 +80,7 @@ export async function updateMaterialRequest(formData: FormData) {
       totalCost,
       expectedDeliveryDate: expectedDeliveryRaw ? new Date(expectedDeliveryRaw) : undefined,
       receivedDate: receivedDateRaw ? new Date(receivedDateRaw) : undefined,
+      paidDate: paidDateRaw ? new Date(paidDateRaw) : undefined,
     },
   });
 

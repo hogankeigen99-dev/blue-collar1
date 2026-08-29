@@ -176,6 +176,20 @@ Command Center are never two different calculations of the same thing.
   material-request, subcontract, or Award forms — the same pattern already
   used for a new `Customer` at Award time, no second "go create the
   vendor" trip.
+- **Cash** (`/cash`, `lib/cash.ts`) — company-wide AR/AP aging (0-30/
+  31-60/61-90/90+), a retainage summary both directions, and an 8-week
+  cash forecast, computed live over `Invoice`/`Subcontract`/
+  `MaterialRequest` — no new ledger. AP aging ages a subcontract from its
+  `executedDate` (not `createdAt`, which for most rows is just "when the
+  agreement was entered") and a received material from `receivedDate`,
+  filtering out anything already marked `paidDate` — a new field that
+  finally distinguishes "received" (a real cost the moment it lands) from
+  "paid" (off the books), set from a date input right next to "Received"
+  on the materials page. The forecast is built on one explicit,
+  documented simplification — Net-30 from each row's own aging date, not
+  a schedule-driven projection, since `SchedulePhase`-level target billing
+  dates don't exist yet. The Company Command Center carries an AR/AP/
+  net-position tile group linking here.
 - **Project Portfolio** (`/projects`, `lib/portfolio.ts`) — one row per
   project, filterable by PM/foreman/project type/stage/risk, sortable, with
   the same columns the Command Center already computes per job (schedule %,
@@ -263,7 +277,13 @@ on the still-active job it belongs to; adding a subcontract with a brand
 new vendor name creates a real `Vendor` record findable straight from the
 directory, and executing the agreement records when automatically; and a
 material request can be assigned an existing vendor from the picker, not
-retyped.
+retyped. Cash has its own suite too (`tests/e2e/cash.spec.ts`): AR aging
+spreads across all four buckets with the 90+ and 61-90 rows landing on the
+seeded slow-paying-owner job; the retainage summary shows both directions;
+the 8-week forecast renders with an overdue call-out for what's already
+past the Net-30 assumption; the Company Command Center's AR/AP/net-position
+tile links through; and marking a received material paid on the materials
+page removes it from AP aging.
 
 ## Stack
 
@@ -713,7 +733,6 @@ lib/productivity-actions.ts     Server Actions for material requests and status 
 lib/equipment-actions.ts        Server Actions for equipment + job assignment (with conflict warning)
 lib/change-order-actions.ts     Server Actions for change orders -- approval also upserts a
                                  ContractLine for the approved revenue, un-approval removes it
-lib/subcontractor-actions.ts    Server Actions for subcontractor costs
 app/api/photos/[id]/route.ts    Serves daily-report photo bytes (stored in Postgres)
 app/today/                      Company Action Center
 app/alerts/                     Redirects to /today (folded in, not a separate view)
@@ -782,6 +801,15 @@ app/vendors/                    Vendor directory, new-vendor form, vendor detail
 app/jobs/[id]/subcontracts/     Subcontract list + new-subcontract form -- promoted out of the
                                  job Command Center's old inline section, same reasoning as
                                  change orders/materials/invoices already having their own pages
+
+--- Cash ---
+lib/cash.ts                     Read layer: getArAging/getApAging (0-30/31-60/61-90/90+ buckets),
+                                 getRetainageSummary (both directions), getCashForecast (8-week,
+                                 Net-30 assumption from each row's own aging date) -- a computed
+                                 rollup, no new ledger
+app/cash/                       AR/AP aging tables, retainage summary, 8-week forecast -- company-
+                                 wide, ADMIN/PM only
+
 prisma/schema.prisma  Data model
 prisma/seed.ts        Sample data, demo login accounts, seven simultaneous active/completed
                        projects each demonstrating one condition cleanly for the Company Command
@@ -790,15 +818,18 @@ prisma/seed.ts        Sample data, demo login accounts, seven simultaneous activ
                        pipeline (two wins each converted to a real Job, two losses and a no-bid
                        with reasons, two still-open bids), a real Contract + Schedule of Values on
                        every job with a contract value (multi-line, retainage, CO-sourced lines),
-                       real multi-period pay-application history on several of them, a real Vendor
-                       directory (every material/subcontract commitment tied to one, not a
-                       free-text name) with one vendor's certificate of insurance deliberately
-                       lapsed to demonstrate the COI_EXPIRED alert live, plus the small-crew-project
-                       and estimate/actual-loop demo scenarios from earlier phases
+                       real multi-period pay-application history on several of them (spread across
+                       every AR aging bucket, including a Westgate Plaza slow-paying-owner scenario
+                       for the 61-90/90+ buckets), a real Vendor directory (every material/
+                       subcontract commitment tied to one, not a free-text name) with one vendor's
+                       certificate of insurance deliberately lapsed to demonstrate the COI_EXPIRED
+                       alert live and a mix of paid/unpaid received materials for AP variety, plus
+                       the small-crew-project and estimate/actual-loop demo scenarios from earlier
+                       phases
 docs/ARCHITECTURE.md            Full company-lifecycle design (Lead/Bid through Executive Command)
                                  -- the Opportunity pipeline and Contract/SOV/Billing are Phase 1,
-                                 and Vendor/Subcontract procurement is the built half of Phase 2,
-                                 all now shipped
+                                 and Vendor/Subcontract procurement + Cash are both now-shipped
+                                 halves of Phase 2 (SubBid is the one still-open half)
 docs/OPERATING-DATA-MODEL.md    Source-of-truth audit for every major business concept -- what
                                  this phase's company-wide views were built against
 tests/e2e/             Playwright E2E suite (npm run test:e2e) -- small-crew-project workflow,

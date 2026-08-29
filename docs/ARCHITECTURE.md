@@ -423,33 +423,61 @@ Closeout maturity below.
 
 ---
 
-### 3.13 Cash — **Missing**
+### 3.13 Cash — **Built**
 
 **Purpose.** AR/AP aging and a cash-flow forecast across every active job
-— the thing a company's actual bank balance depends on, which today has
-no company-wide view at all (only per-job billing readiness).
+— the thing a company's actual bank balance depends on, which previously
+had no company-wide view at all (only per-job billing readiness).
 
 **Deliberately not a new ledger.** Cash is a computed rollup over
-`Invoice`/`InvoiceLine` (AR) and `Contract`/`Subcontract`/`MaterialRequest`
-commitments (AP), the same "consolidated fetch, computed once" pattern
-`lib/project-health.ts` already uses per job — scaled to company level, no
-new source-of-truth storage.
+`Invoice`/`InvoiceLine` (AR) and `Subcontract`/`MaterialRequest`
+commitments (AP) — the same "consolidated fetch, computed once" pattern
+`lib/project-health.ts` already uses per job, scaled to company level. No
+new source-of-truth storage except one field: `MaterialRequest.paidDate`,
+because "received" (a real cost the moment it lands, per job costing) and
+"paid" (off the books) are different facts and the model had no way to
+tell them apart.
 
-**Target.**
+**Shipped model.** `lib/cash.ts`:
 ```
-lib/cash.ts
-  getArAging(companyId)   -- unpaid Invoice rows bucketed 0-30/30-60/60-90/90+
-  getApAging(companyId)   -- uncommitted-to-paid Subcontract/MaterialRequest
-                              rows bucketed the same way
-  getCashForecast(companyId, weeks)
-    -- projected weekly net = expected billings (from Schedule/Contract
-       pacing) minus expected commitments due, across every active job
-  getRetainageSummary(companyId)  -- retainage held (AR) vs. owed (AP)
+getArAging(companyId)   -- SENT (billed, uncollected) Invoice rows,
+                            bucketed 0-30/31-60/61-90/90+ from invoice.date
+getApAging(companyId)   -- INVOICED Subcontract rows (aged from
+                            executedDate) + RECEIVED-but-unpaid
+                            MaterialRequest rows (aged from receivedDate),
+                            same four buckets
+getRetainageSummary(companyId)
+  -- heldByOwner: sum(InvoiceLine.retainageWithheld) across SENT/PAID
+     invoices — what the owner is withholding from us, not yet released
+  -- heldFromSubs: sum(actualAmount * retainagePct) across
+     INVOICED/PAID subcontracts — what we're withholding from subs
+getCashForecast(companyId, weeks = 8)
+  -- weekly net = projected AR collection minus projected AP payment,
+     each outstanding row assumed to land on a Net-30 basis from its own
+     aging anchor; anything already past that mark reports as overdue
+     rather than projected into a future week
 ```
 
-**UI.** `/cash` — AR aging table, AP aging table, a simple forecast chart,
-retainage summary. Company-wide, ADMIN/PM visibility (same role gate as
-`/accounting`).
+**One explicit simplification.** The forecast is Net-30 from each row's
+own date, not the architecture's original "Schedule/Contract pacing"
+idea (projected billings from per-phase target dates). That model needs
+`SchedulePhase`-level target billing dates, which don't exist — §3.6 is
+still Partial. Net-30 is real math over real outstanding rows, not a
+fabricated curve; the UI labels it as an assumption, not a prediction.
+
+**UI.** `/cash` — summary tiles (AR/AP outstanding, net position,
+retainage both sides), AR and AP aging tables with a per-bucket
+breakdown and drill-through to the job, an 8-week forecast table with
+proportional in/out bars. Company-wide, ADMIN/PM visibility (same role
+gate as `/financials`). The Company Command Center also carries an AR/AP/
+net-position tile group linking here. `app/jobs/[id]/materials`'s update
+form gained a "Paid" date field next to "Received" so marking a bill paid
+is a normal part of the existing materials workflow, not a separate flow.
+
+**Still missing.** Retainage *release* (carried over from §3.12 — the
+closeout event that pays out everything withheld remains unmodeled). No
+alerting on severely overdue AP/AR — this phase scoped to aging, forecast,
+and retainage visibility only, not a new exception type.
 
 ---
 
@@ -660,10 +688,7 @@ was no reason to hold it for Vendor/Subcontract formalization, which
 doesn't. See `docs/OPERATING-DATA-MODEL.md`'s §Contract & Schedule of
 Values and §Invoice / pay application, and the README's "Company
 Operating Core" section, for what's live. `/cash` (AR/AP aging, forecast)
-was **not** built this phase — it's a company-wide rollup over
-`Invoice`/`Contract` commitments that doesn't need Vendor/Subcontract
-either, but wasn't asked for; still next, along with Procurement
-formalization below.
+was not built this phase — see Phase 2 below, where it shipped.
 
 ### Phase 2 — Money in/out: Procurement formalization + Cash
 
@@ -678,14 +703,17 @@ README's "Company Operating Core" section, for what's live.
 
 **`SubBid` half: still not built.** No bid-leveling entity yet (§3.2
 remains partial) — a `Subcontract` today is entered directly, not
-promoted from a selected sub-bid. Not reopened this phase; still next.
+promoted from a selected sub-bid. Explicitly deferred again in favor of
+Cash below; still next.
 
-**`/cash` half: still not built.** AR/AP aging and a cash-flow forecast
-over the `Contract`/`Invoice`/`Subcontract`/`MaterialRequest` data that
-now all exists — nothing blocks on it structurally, it just wasn't asked
-for this phase. SOV-based progress billing itself shipped in the prior
-phase, ahead of its originally planned Phase 2 slot, once `Contract`
-existed — nothing here blocked on it either.
+**`/cash` half: built.** AR aging (`Invoice`), AP aging
+(`Subcontract`/`MaterialRequest`), a retainage summary both directions,
+and an 8-week forecast on an explicitly-labeled Net-30 assumption — see
+§3.13. One schema addition (`MaterialRequest.paidDate`) so a received
+material's cost and its payment are tracked as the separate facts they
+are. Company Command Center gained an AR/AP/net-position tile group. See
+`docs/OPERATING-DATA-MODEL.md`'s §Cash and the README's "Company
+Operating Core" section for what's live.
 
 ### Phase 3 — Field/Schedule maturity
 `SchedulePhase`, Closeout maturity (warranty, lien waivers, retainage

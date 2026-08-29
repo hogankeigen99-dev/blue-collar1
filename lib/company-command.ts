@@ -2,6 +2,7 @@ import { scopedPrisma } from "@/lib/tenant";
 import { getProjectHealth, type ProjectHealth } from "@/lib/project-health";
 import { getJobCosting } from "@/lib/job-costing";
 import { getWinRateReport } from "@/lib/opportunities";
+import { getArAging, getApAging } from "@/lib/cash";
 import type { Alert } from "@/lib/alerts";
 import { dateKey } from "@/lib/schedule";
 
@@ -19,6 +20,11 @@ export type CompanyCommand = {
   pipelineOpenCount: number;
   pipelineValue: number;
   pipelineWinRatePct: number | null;
+
+  // Cash — outstanding AR/AP company-wide (lib/cash.ts)
+  cashArOutstanding: number;
+  cashApOutstanding: number;
+  cashNetPosition: number;
 
   // Active operations
   activeProjectCount: number;
@@ -90,12 +96,14 @@ export async function getCompanyCommand(companyId: string): Promise<CompanyComma
   const now = Date.now();
   const todayKey = dateKey(new Date(now));
 
-  const [openJobs, winRate] = await Promise.all([
+  const [openJobs, winRate, arAging, apAging] = await Promise.all([
     prisma.job.findMany({
       where: { status: { not: "CANCELLED" }, stage: { not: "COMPLETE" } },
       select: { id: true },
     }),
     getWinRateReport(companyId),
+    getArAging(companyId),
+    getApAging(companyId),
   ]);
   const healths = await Promise.all(openJobs.map((j) => getProjectHealth(companyId, j.id)));
 
@@ -267,6 +275,9 @@ export async function getCompanyCommand(companyId: string): Promise<CompanyComma
     pipelineOpenCount: winRate.openCount,
     pipelineValue: winRate.openValue,
     pipelineWinRatePct: winRate.overallWinRatePct,
+    cashArOutstanding: arAging.total,
+    cashApOutstanding: apAging.total,
+    cashNetPosition: arAging.total - apAging.total,
     activeProjectCount,
     startingSoon,
     nearingCompletion,

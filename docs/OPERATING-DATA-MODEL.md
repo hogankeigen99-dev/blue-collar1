@@ -205,11 +205,21 @@ the same shape before wiring a second consumer to it.
   no-duplicate-entry rule as production.
 - **Consumed by:** job costing (committed/actual material cost), billing
   readiness, alerts (`MATERIAL_RISK`), Field activity, Company Command's
-  material-risk bucket, now the Vendor directory's material-spend rollup.
-- **Finding (this phase):** `vendor` used to be a free-text string, typed
+  material-risk bucket, the Vendor directory's material-spend rollup, and
+  now `lib/cash.ts`'s AP aging.
+- **Finding (prior phase):** `vendor` used to be a free-text string, typed
   fresh on every request with no guarantee two PMs spelled the same
   supplier the same way. It's now `vendorId`, a real FK to `Vendor` — see
   below.
+- **Finding (this phase):** `receivedDate` meant "this cost is real" for
+  job costing, but nothing distinguished "received and paid" from
+  "received and still owed" — the same field was being asked to answer
+  two different questions. Added `paidDate` (nullable, same "unset =
+  hasn't happened" shape as every other date on this model): a `RECEIVED`
+  row with `totalCost` set and `paidDate` still null is real outstanding
+  AP; setting `paidDate` (a checkbox-equivalent date input next to
+  "Received" on the materials page) is the whole "mark this bill paid"
+  action — no separate flow.
 
 ### Vendor
 
@@ -345,6 +355,46 @@ the same shape before wiring a second consumer to it.
   that's fully closed out and paid was given 0% retainage instead, so the
   "fully paid, fully closed" demo state stays honest without faking a
   release event that doesn't exist yet.
+
+### Cash
+
+- **Source of truth:** none — a pure computed rollup, `lib/cash.ts`, over
+  rows that already exist: `Invoice`/`InvoiceLine` for AR,
+  `Subcontract`/`MaterialRequest` for AP. No new ledger, same
+  "consolidated fetch, computed once" pattern as `lib/project-health.ts`
+  and `lib/company-financials.ts`, scaled to company level.
+- **AR aging:** every `SENT` (billed, not yet `PAID`) `Invoice`, aged from
+  `invoice.date`, bucketed 0-30/31-60/61-90/90+.
+- **AP aging:** two sources, same four buckets. `Subcontract` rows with
+  `status: INVOICED`, aged from `executedDate ?? createdAt` —
+  deliberately not `createdAt` alone, which for most rows is "whenever the
+  agreement was entered," not when the bill actually came in.
+  `MaterialRequest` rows with `status: RECEIVED`, a real `totalCost`, and
+  `paidDate` still null, aged from `receivedDate ?? createdAt`.
+- **Retainage summary:** `heldByOwner` —
+  `sum(InvoiceLine.retainageWithheld)` across `SENT`/`PAID` invoices, what
+  the owner hasn't released back to us yet. `heldFromSubs` —
+  `sum(actualAmount * retainagePct)` across `INVOICED`/`PAID`
+  subcontracts, what we're holding back from subs on work already billed.
+  Neither is a release schedule — retainage release stays unmodeled (see
+  §Invoice / pay application below).
+- **Forecast:** 8 weeks by default, `expectedIn`/`expectedOut` per week,
+  built on one explicit, labeled simplification — each outstanding AR/AP
+  row is assumed to collect/pay on a Net-30 basis from its own aging
+  anchor. A row already past that 30-day mark reports as overdue instead
+  of landing in a future week. Not schedule-driven (that would need
+  `SchedulePhase`-level target billing dates, which don't exist — §3.6 of
+  `docs/ARCHITECTURE.md` is still Partial); real math over real
+  outstanding rows, not a fabricated curve.
+- **Tenant scoping note:** `Invoice`/`Subcontract`/`MaterialRequest` are
+  child records with no `companyId` of their own (see `lib/tenant.ts`), so
+  a company-wide query needs an explicit `jobId: { in: scopedJobIds }`
+  filter — `lib/cash.ts` fetches the company's own job ids first via the
+  scoped client, then filters every child-model query by that set, the
+  same pattern `lib/company-command.ts` already uses for its company-wide
+  invoice sum.
+- **Consumed by:** `/cash` (aging tables, retainage summary, forecast),
+  the Company Command Center's AR/AP/net-position tile group.
 
 ### Historical productivity vs. estimating benchmark — snapshot feeding a live query, not duplication
 

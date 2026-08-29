@@ -60,6 +60,11 @@ export default async function RootLayout({
                       Financials
                     </Link>
                   )}
+                  {canManageEstimates(session.role) && (
+                    <Link href="/cash" className="text-sm text-slate-600 hover:text-slate-900">
+                      Cash
+                    </Link>
+                  )}
                   <Link href="/cost-codes" className="text-sm text-slate-600 hover:text-slate-900">
                     Estimating
                   </Link>

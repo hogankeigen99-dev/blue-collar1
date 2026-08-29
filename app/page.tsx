@@ -86,6 +86,26 @@ export default async function CompanyCommandCenter() {
         </div>
       </div>
 
+      {/* Cash */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-medium">Cash</h2>
+          <Link href="/cash" className="text-sm text-blue-600 hover:underline">
+            AR/AP aging & forecast →
+          </Link>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <StatTile label="AR outstanding" value={formatMoney(cmd.cashArOutstanding)} href="/cash" />
+          <StatTile label="AP outstanding" value={formatMoney(cmd.cashApOutstanding)} href="/cash" />
+          <StatTile
+            label="Net position"
+            value={formatMoney(cmd.cashNetPosition)}
+            href="/cash"
+            danger={cmd.cashNetPosition < 0}
+          />
+        </div>
+      </div>
+
       {/* Active operations */}
       <div className="space-y-3">
         <h2 className="text-lg font-medium">Active operations</h2>
