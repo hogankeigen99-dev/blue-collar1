@@ -17,5 +17,7 @@ export const config = {
   // /api/v1/* authenticates itself via a Bearer API key, not the session
   // cookie. /api/auth/sso/* runs before a session cookie exists — the SSO
   // callback route is what CREATES it (lib/sso-actions.ts, app/api/auth/sso/callback).
-  matcher: ["/((?!login|api/v1|api/auth/sso|_next/static|_next/image|favicon.ico).*)"],
+  // /api/cron/* is hit by a scheduler, not a signed-in browser — it
+  // authenticates itself via CRON_SECRET (lib/webhook-retry.ts).
+  matcher: ["/((?!login|api/v1|api/auth/sso|api/cron|_next/static|_next/image|favicon.ico).*)"],
 };

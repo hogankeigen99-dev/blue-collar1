@@ -1,6 +1,7 @@
 import { scopedPrisma } from "@/lib/tenant";
-import { createWebhook, toggleWebhook } from "@/lib/settings-actions";
+import { createWebhook, toggleWebhook, retryWebhookDeliveryNow } from "@/lib/settings-actions";
 import { requirePageRole } from "@/lib/session";
+import { MAX_ATTEMPTS } from "@/lib/webhook-retry";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,8 @@ export default async function WebhooksPage({
         <p className="text-slate-500 text-sm mt-1">
           POST a JSON payload to your endpoint when one of these events happens, signed with
           an HMAC-SHA256 in the <code className="bg-slate-100 px-1 rounded">X-CrewSync-Signature</code> header.
+          A failed delivery retries automatically with backoff (up to {MAX_ATTEMPTS} attempts total)
+          before it&apos;s marked dead-lettered — you can also retry any delivery immediately below.
         </p>
       </div>
 
@@ -86,12 +89,36 @@ export default async function WebhooksPage({
                 <div className="border-t pt-2 space-y-1">
                   <div className="text-xs text-slate-400">Recent deliveries</div>
                   {w.deliveries.map((d) => (
-                    <div key={d.id} className="text-xs flex items-center justify-between">
+                    <div key={d.id} className="text-xs flex items-center justify-between gap-2">
                       <span>
                         {EVENT_LABEL[d.event]} · {new Date(d.createdAt).toLocaleString()}
+                        {d.attempt > 1 && ` · attempt ${d.attempt}/${MAX_ATTEMPTS}`}
+                        {!d.success && !d.deadLettered && d.nextRetryAt && ` · retrying at ${new Date(d.nextRetryAt).toLocaleTimeString()}`}
                       </span>
-                      <span className={d.success ? "text-green-600" : "text-red-600"}>
-                        {d.success ? `OK (${d.statusCode})` : `Failed${d.statusCode ? ` (${d.statusCode})` : ""}`}
+                      <span className="flex items-center gap-2 whitespace-nowrap">
+                        <span
+                          className={
+                            d.success
+                              ? "text-green-600"
+                              : d.deadLettered
+                                ? "text-red-700 font-medium"
+                                : "text-amber-600"
+                          }
+                        >
+                          {d.success
+                            ? `OK (${d.statusCode})`
+                            : d.deadLettered
+                              ? `Dead-lettered${d.statusCode ? ` (${d.statusCode})` : ""}`
+                              : `Failed${d.statusCode ? ` (${d.statusCode})` : ""}`}
+                        </span>
+                        {!d.success && (
+                          <form action={retryWebhookDeliveryNow}>
+                            <input type="hidden" name="id" value={d.id} />
+                            <button type="submit" className="text-blue-600 hover:underline">
+                              Retry now
+                            </button>
+                          </form>
+                        )}
                       </span>
                     </div>
                   ))}

@@ -116,8 +116,17 @@ same-day instead of on the next payroll cycle.
   the plaintext key is shown exactly once, at creation, then only its hash
   is stored); and webhooks (`/settings/webhooks`) that POST an HMAC-SHA256-
   signed JSON payload to your endpoint on job-stage-changed, change-order-
-  approved, invoice-sent, and daily-report-submitted, with delivery status
-  recorded per attempt.
+  approved, invoice-sent, and daily-report-submitted. A failed delivery
+  isn't just logged and forgotten — it retries with exponential backoff (1m,
+  5m, 30m, 2h, 12h; 6 attempts total, `lib/webhook-retry.ts`) before being
+  marked dead-lettered, with a "Retry now" action and dead-letter status
+  visible per delivery on the webhooks page. The retry queue only advances
+  when something calls `POST /api/cron/webhook-retries` (Bearer
+  `CRON_SECRET`) — point a scheduler (Railway cron, GitHub Actions, same
+  pattern as `docs/BACKUP_RECOVERY.md`) at it every few minutes. Verified
+  live: a delivery to a forced-failing endpoint walked through all 6
+  attempts to dead-lettered, then recovered via "Retry now" once the
+  endpoint was fixed.
 - **Multi-tenant company isolation**: `Company` is the hard security
   boundary — every tenant-scoped query and write goes through a Prisma
   Client Extension (`lib/tenant.ts`, `scopedPrisma(companyId)`) that injects

@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/session";
 import { generateApiKey } from "@/lib/api-key";
+import { attemptDelivery, nextRetryDelayMinutes } from "@/lib/webhook-retry";
 import { randomBytes } from "crypto";
 
 function str(formData: FormData, key: string): string | undefined {
@@ -59,6 +60,50 @@ export async function toggleWebhook(formData: FormData) {
   if (!id) throw new Error("Webhook is required");
 
   await prisma.webhook.update({ where: { id }, data: { active } });
+
+  revalidatePath("/settings/webhooks");
+  redirect("/settings/webhooks");
+}
+
+/** Retries one delivery immediately, regardless of its scheduled
+ * nextRetryAt — the same attempt/backoff/dead-letter logic the retry cron
+ * uses (lib/webhook-retry.ts), just triggered by an admin instead of a
+ * schedule. Also un-dead-letters a delivery if the admin believes the
+ * endpoint is fixed now. */
+export async function retryWebhookDeliveryNow(formData: FormData) {
+  const session = await requireRole("ADMIN");
+  const prisma = scopedPrisma(session.companyId);
+  const id = str(formData, "id");
+  if (!id) throw new Error("Delivery is required");
+
+  // WebhookDelivery isn't a tenant model — verify the webhook it belongs
+  // to is in this company before touching it.
+  const delivery = await prisma.webhookDelivery.findFirst({
+    where: { id, webhook: { companyId: session.companyId } },
+    include: { webhook: true },
+  });
+  if (!delivery) throw new Error("Delivery not found");
+
+  const result = await attemptDelivery(delivery.webhook.url, delivery.webhook.secret, delivery.payload);
+  const attempt = delivery.attempt + 1;
+
+  if (result.success) {
+    await prisma.webhookDelivery.update({
+      where: { id },
+      data: { success: true, statusCode: result.statusCode, attempt, deadLettered: false, nextRetryAt: null },
+    });
+  } else {
+    const delayMinutes = nextRetryDelayMinutes(attempt);
+    await prisma.webhookDelivery.update({
+      where: { id },
+      data: {
+        statusCode: result.statusCode,
+        attempt,
+        deadLettered: delayMinutes === null,
+        nextRetryAt: delayMinutes !== null ? new Date(Date.now() + delayMinutes * 60_000) : null,
+      },
+    });
+  }
 
   revalidatePath("/settings/webhooks");
   redirect("/settings/webhooks");
