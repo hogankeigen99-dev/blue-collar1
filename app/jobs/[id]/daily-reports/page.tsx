@@ -43,6 +43,7 @@ export default async function DailyReportsPage({
         <div className="bg-white border rounded-lg divide-y">
           {reports.map((r) => {
             const flags = [
+              r.blockers && "blockers",
               r.materialNeeded && "material needed",
               r.equipmentIssue && "equipment issue",
               r.safetyIssue && "safety issue",

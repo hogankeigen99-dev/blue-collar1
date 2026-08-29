@@ -53,9 +53,15 @@ export default async function NewDailyReportPage({
           </div>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium mb-1">Work completed</label>
-          <textarea name="workCompleted" rows={2} className="w-full border rounded-md px-3 py-2 text-sm" />
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium mb-1">Work completed</label>
+            <textarea name="workCompleted" rows={2} className="w-full border rounded-md px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Quantity installed</label>
+            <input name="quantityInstalled" placeholder="e.g. 35 CY slab" className="w-full border rounded-md px-3 py-2 text-sm" />
+          </div>
         </div>
 
         <div>
@@ -64,6 +70,14 @@ export default async function NewDailyReportPage({
         </div>
 
         <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium mb-1">Blockers</label>
+            <textarea name="blockers" rows={2} placeholder="Anything stopping progress" className="w-full border rounded-md px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Delay reason</label>
+            <textarea name="delayReason" rows={2} className="w-full border rounded-md px-3 py-2 text-sm" />
+          </div>
           <div>
             <label className="block text-sm font-medium mb-1">Material needed</label>
             <textarea name="materialNeeded" rows={2} className="w-full border rounded-md px-3 py-2 text-sm" />
@@ -75,10 +89,6 @@ export default async function NewDailyReportPage({
           <div>
             <label className="block text-sm font-medium mb-1">Safety issue</label>
             <textarea name="safetyIssue" rows={2} className="w-full border rounded-md px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Delay reason</label>
-            <textarea name="delayReason" rows={2} className="w-full border rounded-md px-3 py-2 text-sm" />
           </div>
         </div>
 

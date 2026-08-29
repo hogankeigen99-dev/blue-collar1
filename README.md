@@ -67,9 +67,10 @@ same-day instead of on the next payroll cycle.
   job's current productivity burn rate; the rest use committed/actual data
   from the workflows below. A budget can be set per category from the job page.
 - **Daily field reports** (`/jobs/[id]/daily-reports`): one fast form per job
-  per day — crew size, hours, work completed, photos, material needed,
-  equipment issue, safety issue, change condition, delay reason, and
-  tomorrow's plan. Submitting again for the same date updates it in place.
+  per day — crew size, hours, quantity installed, work completed, photos,
+  blockers, material needed, equipment issue, safety issue, change condition,
+  delay reason, and tomorrow's plan. Submitting again for the same date
+  updates it in place.
 - **Change orders** (`/jobs/[id]/change-orders`): field flags a change
   condition on a daily report → becomes a change order → PM prices it →
   approval adds the revenue and cost into job costing automatically.

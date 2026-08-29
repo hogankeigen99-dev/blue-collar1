@@ -16,6 +16,8 @@ export default async function DailyReportDetailPage({
 
   const rows: [string, string | null | undefined][] = [
     ["Work completed", report.workCompleted],
+    ["Quantity installed", report.quantityInstalled],
+    ["Blockers", report.blockers],
     ["Material needed", report.materialNeeded],
     ["Equipment issue", report.equipmentIssue],
     ["Safety issue", report.safetyIssue],

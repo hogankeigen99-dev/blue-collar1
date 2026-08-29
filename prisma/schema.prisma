@@ -291,7 +291,9 @@ model DailyReport {
   date                 DateTime
   crewSize             Int?
   hours                Float?
+  quantityInstalled    String? // free-text — e.g. "35 CY slab", not tied to a specific cost code
   workCompleted        String?
+  blockers             String?
   materialNeeded       String?
   equipmentIssue       String?
   safetyIssue          String?
