@@ -14,15 +14,27 @@ enum JobStatus {
   CANCELLED
 }
 
+enum UnitOfMeasure {
+  CY // cubic yard
+  SF // square foot
+  LF // linear foot
+  SQ // roofing square
+  TON
+  EA // each
+  HR // hour (labor-only cost codes, e.g. punch list)
+  LS // lump sum
+}
+
 model Worker {
-  id        String   @id @default(cuid())
-  name      String
-  role      String?
-  phone     String?
-  email     String?
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  jobs      JobAssignment[]
+  id               String            @id @default(cuid())
+  name             String
+  role             String?
+  phone            String?
+  email            String?
+  active           Boolean           @default(true)
+  createdAt        DateTime          @default(now())
+  jobs             JobAssignment[]
+  productionEntries ProductionEntry[]
 }
 
 model Customer {
@@ -37,17 +49,18 @@ model Customer {
 }
 
 model Job {
-  id           String          @id @default(cuid())
-  title        String
-  description  String?
-  status       JobStatus       @default(SCHEDULED)
-  address      String?
-  scheduledAt  DateTime?
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
-  customer     Customer?       @relation(fields: [customerId], references: [id])
-  customerId   String?
-  assignments  JobAssignment[]
+  id            String          @id @default(cuid())
+  title         String
+  description   String?
+  status        JobStatus       @default(SCHEDULED)
+  address       String?
+  scheduledAt   DateTime?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  customer      Customer?       @relation(fields: [customerId], references: [id])
+  customerId    String?
+  assignments   JobAssignment[]
+  costCodes     JobCostCode[]
 }
 
 model JobAssignment {
@@ -58,4 +71,52 @@ model JobAssignment {
   workerId String
 
   @@unique([jobId, workerId])
+}
+
+// Master cost code list — the estimating asset. Historical productivity
+// (actual hrs/unit) is derived from ProductionEntry rows across every job
+// that has ever used this code, not stored redundantly here.
+model CostCode {
+  id          String        @id @default(cuid())
+  code        String        @unique
+  description String
+  unit        UnitOfMeasure
+  createdAt   DateTime      @default(now())
+  jobCostCodes JobCostCode[]
+}
+
+// The budget line: what a job's estimate says a cost code should cost in
+// quantity and labor hours. This is the "connects to your estimate" piece —
+// actuals logged against it are compared back to these numbers in real time.
+model JobCostCode {
+  id             String            @id @default(cuid())
+  job            Job               @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  jobId          String
+  costCode       CostCode          @relation(fields: [costCodeId], references: [id])
+  costCodeId     String
+  estimatedQty   Float
+  estimatedHours Float
+  createdAt      DateTime          @default(now())
+  entries        ProductionEntry[]
+
+  @@unique([jobId, costCodeId])
+}
+
+// A single day's field-reported labor and quantity-installed against a
+// job's cost code budget line. This is the daily foreman input that closes
+// the field-to-cost feedback loop same-day instead of on a payroll cycle.
+model ProductionEntry {
+  id            String      @id @default(cuid())
+  jobCostCode   JobCostCode @relation(fields: [jobCostCodeId], references: [id], onDelete: Cascade)
+  jobCostCodeId String
+  date          DateTime
+  crewSize      Int?
+  hours         Float
+  quantity      Float
+  notes         String?
+  enteredBy     Worker?     @relation(fields: [enteredById], references: [id])
+  enteredById   String?
+  createdAt     DateTime    @default(now())
+
+  @@index([jobCostCodeId])
 }

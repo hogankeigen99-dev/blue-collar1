@@ -15,11 +15,27 @@ completed / cancelled).
 - **Jobs**: create, view, list, update status, assign one or more workers, delete
 - **Workers**: add crew members with role/contact info
 - **Customers**: add customer records with address/contact info
-- **Dashboard**: job counts by status, upcoming/recent jobs
+- **Dashboard**: job counts by status, upcoming/recent jobs, labor productivity flags
+- **Cost codes & labor productivity**: the field-to-cost-to-estimate loop for
+  self-perform crews:
+  - **Cost codes** — a master list (code, description, unit of measure) shared
+    across every job.
+  - **Budget lines** — attach a cost code to a job with the estimate's
+    quantity and hours (e.g. 400 CY at 340 hrs), so field actuals have
+    something to be measured against.
+  - **Daily production log** — a foreman logs crew hours and quantity
+    installed per cost code per day. No payroll-cycle lag: actual hrs/unit,
+    variance vs. the estimate, and an on-pace/watch/over-budget status
+    recompute immediately on save.
+  - **Historical productivity** (`/cost-codes`) — actual hrs/unit aggregated
+    across every job that has ever used a cost code, so estimators can pull
+    the company's own actuals instead of bidding from gut feel or generic
+    unit-cost books.
 
 Not in scope for this MVP: authentication, invoicing/payments, scheduling
-calendar, notifications. These are natural next steps once the core data
-model is validated.
+calendar, notifications, equipment utilization tracking, and multi-job crew
+scheduling. These are natural next steps once the core data model is
+validated.
 
 ## Local development
 
@@ -58,11 +74,13 @@ App runs at http://localhost:3000.
 ## Project structure
 
 ```
-app/                  Next.js App Router pages (dashboard, jobs, workers, customers)
-lib/prisma.ts         Shared Prisma client
-lib/actions.ts        Server Actions (create/update/delete for jobs/workers/customers)
+app/                        Next.js App Router pages (dashboard, jobs, workers, customers, cost codes)
+lib/prisma.ts               Shared Prisma client
+lib/actions.ts               Server Actions for jobs/workers/customers
+lib/productivity.ts          Variance/status calc + historical productivity query
+lib/productivity-actions.ts  Server Actions for cost codes/budget lines/production entries
 prisma/schema.prisma  Data model
-prisma/seed.ts        Sample data
+prisma/seed.ts        Sample data, including a labor-productivity demo scenario
 railway.json          Railway build/deploy config
 .github/workflows/    CI
 ```

@@ -30,6 +30,9 @@ export default function RootLayout({
               <Link href="/customers" className="text-sm text-slate-600 hover:text-slate-900">
                 Customers
               </Link>
+              <Link href="/cost-codes" className="text-sm text-slate-600 hover:text-slate-900">
+                Cost Codes
+              </Link>
             </nav>
           </header>
           <main className="flex-1 max-w-5xl mx-auto w-full px-4 py-8">
