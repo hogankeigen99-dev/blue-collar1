@@ -14,6 +14,12 @@ enum JobStatus {
   CANCELLED
 }
 
+enum Role {
+  ADMIN
+  PM
+  FOREMAN
+}
+
 enum UnitOfMeasure {
   CY // cubic yard
   SF // square foot
@@ -26,15 +32,29 @@ enum UnitOfMeasure {
 }
 
 model Worker {
-  id               String            @id @default(cuid())
-  name             String
-  role             String?
-  phone            String?
-  email            String?
-  active           Boolean           @default(true)
-  createdAt        DateTime          @default(now())
-  jobs             JobAssignment[]
-  productionEntries ProductionEntry[]
+  id                 String               @id @default(cuid())
+  name               String
+  role               String?
+  phone              String?
+  email              String?
+  active             Boolean              @default(true)
+  createdAt          DateTime             @default(now())
+  jobs               JobAssignment[]
+  productionEntries  ProductionEntry[]
+  scheduleAssignments ScheduleAssignment[]
+}
+
+// Login account. Distinct from Worker (a Worker is a crew member who may or
+// may not ever log in — a laborer with no account is still schedulable and
+// can still be recorded as who a foreman entered production for).
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(FOREMAN)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
 }
 
 model Customer {
@@ -61,6 +81,7 @@ model Job {
   customerId    String?
   assignments   JobAssignment[]
   costCodes     JobCostCode[]
+  scheduleAssignments ScheduleAssignment[]
 }
 
 model JobAssignment {
@@ -119,4 +140,20 @@ model ProductionEntry {
   createdAt     DateTime    @default(now())
 
   @@index([jobCostCodeId])
+}
+
+// One worker's job assignment for one calendar day — the crew scheduling
+// board. A worker can only be on one job per day, which is what keeps a
+// GC from double-booking a crew across concurrent jobs.
+model ScheduleAssignment {
+  id        String   @id @default(cuid())
+  worker    Worker   @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  workerId  String
+  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  jobId     String
+  date      DateTime
+  createdAt DateTime @default(now())
+
+  @@unique([workerId, date])
+  @@index([jobId, date])
 }

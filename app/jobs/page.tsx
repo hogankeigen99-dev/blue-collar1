@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { getSession } from "@/lib/session";
+import { canManageJobs } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -11,21 +13,26 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export default async function JobsPage() {
-  const jobs = await prisma.job.findMany({
-    orderBy: { createdAt: "desc" },
-    include: { customer: true, assignments: { include: { worker: true } } },
-  });
+  const [jobs, session] = await Promise.all([
+    prisma.job.findMany({
+      orderBy: { createdAt: "desc" },
+      include: { customer: true, assignments: { include: { worker: true } } },
+    }),
+    getSession(),
+  ]);
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Jobs</h1>
-        <Link
-          href="/jobs/new"
-          className="bg-slate-900 text-white text-sm px-4 py-2 rounded-md hover:bg-slate-700"
-        >
-          + New job
-        </Link>
+        {session && canManageJobs(session.role) && (
+          <Link
+            href="/jobs/new"
+            className="bg-slate-900 text-white text-sm px-4 py-2 rounded-md hover:bg-slate-700"
+          >
+            + New job
+          </Link>
+        )}
       </div>
 
       {jobs.length === 0 ? (

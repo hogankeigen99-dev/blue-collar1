@@ -1,8 +1,36 @@
 import { PrismaClient } from "@prisma/client";
+import { hashPassword } from "../lib/password";
+import { startOfWeek, addDays } from "../lib/schedule";
 
 const prisma = new PrismaClient();
 
 async function main() {
+  // Demo login accounts — local/dev only, never real production credentials.
+  await prisma.user.create({
+    data: {
+      name: "Amanda Reyes",
+      email: "admin@crewsync.dev",
+      passwordHash: hashPassword("admin12345"),
+      role: "ADMIN",
+    },
+  });
+  await prisma.user.create({
+    data: {
+      name: "Priya Shah",
+      email: "pm@crewsync.dev",
+      passwordHash: hashPassword("pm12345678"),
+      role: "PM",
+    },
+  });
+  await prisma.user.create({
+    data: {
+      name: "Frank Delgado",
+      email: "foreman@crewsync.dev",
+      passwordHash: hashPassword("foreman1234"),
+      role: "FOREMAN",
+    },
+  });
+
   const alice = await prisma.worker.create({
     data: { name: "Alice Johnson", role: "Electrician", phone: "555-0101" },
   });
@@ -140,6 +168,16 @@ async function main() {
       estimatedQty: 300,
       estimatedHours: 90,
     },
+  });
+
+  // Crew schedule board demo data — this week's Mon-Thu, so /schedule shows
+  // a populated grid immediately (Friday is left open to demo an empty cell).
+  const monday = startOfWeek(new Date());
+  await prisma.scheduleAssignment.createMany({
+    data: [0, 1, 2, 3].flatMap((offset) => [
+      { workerId: frank.id, jobId: riverside2.id, date: addDays(monday, offset) },
+      { workerId: miguel.id, jobId: riverside2.id, date: addDays(monday, offset) },
+    ]),
   });
 }
 

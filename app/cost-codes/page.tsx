@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { getHistoricalProductivity } from "@/lib/productivity";
+import { getSession } from "@/lib/session";
+import { canManageEstimates } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export default async function CostCodesPage() {
-  const costCodes = await getHistoricalProductivity();
+  const [costCodes, session] = await Promise.all([getHistoricalProductivity(), getSession()]);
 
   return (
     <div className="space-y-6">
@@ -15,12 +17,14 @@ export default async function CostCodesPage() {
             Historical actual productivity across every job — the estimating asset.
           </p>
         </div>
-        <Link
-          href="/cost-codes/new"
-          className="bg-slate-900 text-white text-sm px-4 py-2 rounded-md hover:bg-slate-700"
-        >
-          + New cost code
-        </Link>
+        {session && canManageEstimates(session.role) && (
+          <Link
+            href="/cost-codes/new"
+            className="bg-slate-900 text-white text-sm px-4 py-2 rounded-md hover:bg-slate-700"
+          >
+            + New cost code
+          </Link>
+        )}
       </div>
 
       {costCodes.length === 0 ? (

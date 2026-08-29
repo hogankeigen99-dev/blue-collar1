@@ -1,21 +1,28 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { getSession } from "@/lib/session";
+import { canManageJobs } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export default async function CustomersPage() {
-  const customers = await prisma.customer.findMany({ orderBy: { name: "asc" } });
+  const [customers, session] = await Promise.all([
+    prisma.customer.findMany({ orderBy: { name: "asc" } }),
+    getSession(),
+  ]);
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Customers</h1>
-        <Link
-          href="/customers/new"
-          className="bg-slate-900 text-white text-sm px-4 py-2 rounded-md hover:bg-slate-700"
-        >
-          + Add customer
-        </Link>
+        {session && canManageJobs(session.role) && (
+          <Link
+            href="/customers/new"
+            className="bg-slate-900 text-white text-sm px-4 py-2 rounded-md hover:bg-slate-700"
+          >
+            + Add customer
+          </Link>
+        )}
       </div>
 
       {customers.length === 0 ? (

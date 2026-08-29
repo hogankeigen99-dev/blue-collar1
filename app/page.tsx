@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { computeProgress, PRODUCTIVITY_STATUS_LABEL, PRODUCTIVITY_STATUS_CLASSES } from "@/lib/productivity";
+import { requireSession } from "@/lib/session";
+import { canManageJobs } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +14,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export default async function DashboardPage() {
+  const session = await requireSession();
   const [jobs, workerCount, customerCount, jobCostCodes] = await Promise.all([
     prisma.job.findMany({
       orderBy: { scheduledAt: "asc" },
@@ -95,17 +98,24 @@ export default async function DashboardPage() {
       <div>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-medium">Upcoming / recent jobs</h2>
-          <Link href="/jobs/new" className="text-sm text-blue-600 hover:underline">
-            + New job
-          </Link>
+          {canManageJobs(session.role) && (
+            <Link href="/jobs/new" className="text-sm text-blue-600 hover:underline">
+              + New job
+            </Link>
+          )}
         </div>
         {jobs.length === 0 ? (
           <p className="text-slate-500 text-sm">
-            No jobs yet.{" "}
-            <Link href="/jobs/new" className="text-blue-600 hover:underline">
-              Create the first one
-            </Link>
-            .
+            No jobs yet.
+            {canManageJobs(session.role) && (
+              <>
+                {" "}
+                <Link href="/jobs/new" className="text-blue-600 hover:underline">
+                  Create the first one
+                </Link>
+                .
+              </>
+            )}
           </p>
         ) : (
           <div className="bg-white border rounded-lg divide-y">

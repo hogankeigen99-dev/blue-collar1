@@ -2,12 +2,14 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { addJobCostCode } from "@/lib/productivity-actions";
+import { requirePageRole } from "@/lib/session";
 
 export default async function NewJobCostCodePage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
+  await requirePageRole("ADMIN", "PM");
   const { id } = await params;
   const [job, costCodes] = await Promise.all([
     prisma.job.findUnique({ where: { id } }),

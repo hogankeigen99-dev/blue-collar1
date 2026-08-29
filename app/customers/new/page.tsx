@@ -1,6 +1,9 @@
 import { createCustomer } from "@/lib/actions";
+import { requirePageRole } from "@/lib/session";
 
-export default function NewCustomerPage() {
+export default async function NewCustomerPage() {
+  await requirePageRole("ADMIN", "PM");
+
   return (
     <div className="max-w-xl space-y-6">
       <h1 className="text-2xl font-semibold">Add customer</h1>

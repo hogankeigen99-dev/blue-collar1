@@ -3,15 +3,21 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { updateJobStatus, deleteJob } from "@/lib/actions";
 import { computeProgress, PRODUCTIVITY_STATUS_LABEL, PRODUCTIVITY_STATUS_CLASSES } from "@/lib/productivity";
+import { requireSession } from "@/lib/session";
+import { canManageJobs, canManageEstimates } from "@/lib/auth";
 
 const STATUSES = ["SCHEDULED", "IN_PROGRESS", "COMPLETED", "CANCELLED"] as const;
 
 export default async function JobDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ imported?: string; skipped?: string }>;
 }) {
+  const session = await requireSession();
   const { id } = await params;
+  const { imported, skipped } = await searchParams;
   const [job, jobCostCodes] = await Promise.all([
     prisma.job.findUnique({
       where: { id },
@@ -47,6 +53,17 @@ export default async function JobDetailPage({
           <p className="text-slate-500 text-sm mt-1">For {job.customer.name}</p>
         )}
       </div>
+
+      {imported !== undefined && (
+        <div className="max-w-2xl text-sm bg-green-50 border border-green-200 text-green-800 rounded-md px-4 py-3">
+          Imported {imported} budget line{imported === "1" ? "" : "s"}.
+          {skipped && (
+            <span className="block mt-1 text-amber-700">
+              Skipped (unmatched code or invalid numbers): {skipped}
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="max-w-2xl bg-white border rounded-lg p-6 space-y-4">
         {job.description && (
@@ -110,9 +127,16 @@ export default async function JobDetailPage({
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-medium">Labor productivity</h2>
           <div className="flex gap-3 text-sm">
-            <Link href={`/jobs/${job.id}/cost-codes/new`} className="text-blue-600 hover:underline">
-              + Add budget line
-            </Link>
+            {canManageEstimates(session.role) && (
+              <>
+                <Link href={`/jobs/${job.id}/cost-codes/new`} className="text-blue-600 hover:underline">
+                  + Add budget line
+                </Link>
+                <Link href={`/jobs/${job.id}/cost-codes/import`} className="text-blue-600 hover:underline">
+                  Import CSV
+                </Link>
+              </>
+            )}
             <Link href={`/jobs/${job.id}/log`} className="text-blue-600 hover:underline">
               + Log production
             </Link>
@@ -213,14 +237,16 @@ export default async function JobDetailPage({
         )}
       </div>
 
-      <form action={removeJob}>
-        <button
-          type="submit"
-          className="text-sm text-red-600 hover:underline"
-        >
-          Delete job
-        </button>
-      </form>
+      {canManageJobs(session.role) && (
+        <form action={removeJob}>
+          <button
+            type="submit"
+            className="text-sm text-red-600 hover:underline"
+          >
+            Delete job
+          </button>
+        </form>
+      )}
     </div>
   );
 }

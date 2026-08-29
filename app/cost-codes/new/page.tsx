@@ -1,8 +1,11 @@
 import { createCostCode } from "@/lib/productivity-actions";
+import { requirePageRole } from "@/lib/session";
 
 const UNITS = ["CY", "SF", "LF", "SQ", "TON", "EA", "HR", "LS"] as const;
 
-export default function NewCostCodePage() {
+export default async function NewCostCodePage() {
+  await requirePageRole("ADMIN", "PM");
+
   return (
     <div className="max-w-xl space-y-6">
       <h1 className="text-2xl font-semibold">New cost code</h1>

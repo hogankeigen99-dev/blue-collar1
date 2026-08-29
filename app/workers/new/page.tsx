@@ -1,6 +1,9 @@
 import { createWorker } from "@/lib/actions";
+import { requirePageRole } from "@/lib/session";
 
-export default function NewWorkerPage() {
+export default async function NewWorkerPage() {
+  await requirePageRole("ADMIN", "PM");
+
   return (
     <div className="max-w-xl space-y-6">
       <h1 className="text-2xl font-semibold">Add worker</h1>

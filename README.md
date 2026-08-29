@@ -1,20 +1,32 @@
-# Blue Collar — Crew & Job Manager
+# CrewSync — Crew, Job & Labor Productivity Manager
 
-A minimal MVP for a trades business to track jobs, crew, and customers: who's
-assigned to what, where it is, and its status (scheduled / in progress /
-completed / cancelled).
+An MVP for a self-performing GC to track jobs, crew, scheduling, customers,
+and — the core of it — real-time self-perform labor productivity: daily
+field hours and quantity logged against a job's estimate, compared back
+same-day instead of on the next payroll cycle.
 
 ## Stack
 
 - [Next.js 16](https://nextjs.org/) (App Router, Server Actions)
 - [Prisma](https://www.prisma.io/) + PostgreSQL
 - Tailwind CSS
+- Session auth via signed cookies (no external auth provider)
 
 ## Features (MVP scope)
 
+- **Auth & roles**: email/password login, signed HTTP-only session cookie,
+  three roles (`ADMIN`, `PM`, `FOREMAN`). Every route requires sign-in;
+  job/worker/customer/estimate management is PM/ADMIN-only, while logging
+  daily production and updating job status is open to any signed-in role —
+  enforced server-side in the Server Actions themselves, not just hidden in
+  the UI.
 - **Jobs**: create, view, list, update status, assign one or more workers, delete
 - **Workers**: add crew members with role/contact info
 - **Customers**: add customer records with address/contact info
+- **Crew schedule** (`/schedule`): a weekly grid — workers as rows, days as
+  columns — showing which job each crew member is on. One worker can only be
+  on one job per day, so a dispatcher can't accidentally double-book a crew
+  across concurrent jobs the way a whiteboard or spreadsheet lets happen.
 - **Dashboard**: job counts by status, upcoming/recent jobs, labor productivity flags
 - **Cost codes & labor productivity**: the field-to-cost-to-estimate loop for
   self-perform crews:
@@ -22,7 +34,9 @@ completed / cancelled).
     across every job.
   - **Budget lines** — attach a cost code to a job with the estimate's
     quantity and hours (e.g. 400 CY at 340 hrs), so field actuals have
-    something to be measured against.
+    something to be measured against. Can be added one at a time, or
+    **bulk-imported from a CSV** (`code,estimatedQty,estimatedHours`) so a
+    whole estimate loads in one shot instead of line by line.
   - **Daily production log** — a foreman logs crew hours and quantity
     installed per cost code per day. No payroll-cycle lag: actual hrs/unit,
     variance vs. the estimate, and an on-pace/watch/over-budget status
@@ -32,10 +46,9 @@ completed / cancelled).
     the company's own actuals instead of bidding from gut feel or generic
     unit-cost books.
 
-Not in scope for this MVP: authentication, invoicing/payments, scheduling
-calendar, notifications, equipment utilization tracking, and multi-job crew
-scheduling. These are natural next steps once the core data model is
-validated.
+Not in scope for this MVP: invoicing/payments, notifications, equipment
+utilization tracking, and estimate imports from external takeoff/estimating
+software. These are natural next steps once the core data model is validated.
 
 ## Local development
 
@@ -43,13 +56,26 @@ Requires Node 20+ and a PostgreSQL database.
 
 ```bash
 npm install
-cp .env.example .env   # set DATABASE_URL to your local Postgres
+cp .env.example .env   # set DATABASE_URL, generate an AUTH_SECRET (see below)
 npm run db:migrate     # applies migrations, creates the schema
-npm run db:seed        # optional: adds sample workers/customers/jobs
+npm run db:seed        # adds sample workers/customers/jobs/cost codes and demo login accounts
 npm run dev
 ```
 
-App runs at http://localhost:3000.
+App runs at http://localhost:3000 — you'll be redirected to `/login`.
+
+Generate `AUTH_SECRET` with `openssl rand -base64 32`; it signs session
+cookies, so use a different value per environment and never commit a real one.
+
+### Demo accounts (from `npm run db:seed`)
+
+| Role    | Email               | Password    |
+|---------|---------------------|-------------|
+| ADMIN   | admin@crewsync.dev  | admin12345  |
+| PM      | pm@crewsync.dev     | pm12345678  |
+| FOREMAN | foreman@crewsync.dev| foreman1234 |
+
+These are local/dev seed data only — never reuse them for a real deployment.
 
 ## Deploying
 
@@ -59,28 +85,39 @@ App runs at http://localhost:3000.
 2. Add a **PostgreSQL** plugin to the project — Railway sets `DATABASE_URL`
    automatically for services in the same project (reference it as
    `${{Postgres.DATABASE_URL}}` on the app service if not linked automatically).
-3. Railway auto-detects the build/start commands from `railway.json`:
+3. Set an `AUTH_SECRET` variable on the app service (`openssl rand -base64 32`).
+4. Railway auto-detects the build/start commands from `railway.json`:
    - Build: `npm run build` (runs `prisma generate` then `next build`)
    - Deploy: `npm run db:deploy && npm start` (applies pending migrations, then starts the server)
-4. Deploy. On each push to the connected branch, Railway rebuilds and runs
+5. Deploy. On each push to the connected branch, Railway rebuilds and runs
    migrations automatically before starting the app.
 
 ### GitHub
 
 - Push/PR to `main` triggers `.github/workflows/ci.yml`, which spins up a
   throwaway Postgres service, applies migrations, lints, and builds — a
-  merge gate before Railway deploys.
+  merge gate before Railway deploys. `AUTH_SECRET` isn't needed for the CI
+  build (every route is dynamically rendered, so it's only read at request
+  time, not build time).
 
 ## Project structure
 
 ```
-app/                        Next.js App Router pages (dashboard, jobs, workers, customers, cost codes)
-lib/prisma.ts               Shared Prisma client
-lib/actions.ts               Server Actions for jobs/workers/customers
-lib/productivity.ts          Variance/status calc + historical productivity query
-lib/productivity-actions.ts  Server Actions for cost codes/budget lines/production entries
+app/                          Next.js App Router pages (dashboard, jobs, workers, customers, cost codes, schedule, login)
+proxy.ts                      Route protection — redirects signed-out requests to /login
+lib/prisma.ts                 Shared Prisma client
+lib/actions.ts                 Server Actions for jobs/workers/customers
+lib/productivity.ts            Variance/status calc + historical productivity query
+lib/productivity-actions.ts    Server Actions for cost codes/budget lines/production entries/CSV import
+lib/schedule.ts                Week/date helpers + per-job color coding for the schedule grid
+lib/schedule-actions.ts        Server Action to assign/unassign a worker's day
+lib/auth.ts                    Session token signing/verification (Web Crypto — Edge-runtime safe)
+lib/password.ts                Password hashing (Node crypto — server-actions/seed only)
+lib/auth-actions.ts            Login/logout Server Actions
+lib/session.ts                 getSession/requireSession/requireRole/requirePageRole helpers
+lib/csv.ts                     Small CSV parser for the budget-line importer
 prisma/schema.prisma  Data model
-prisma/seed.ts        Sample data, including a labor-productivity demo scenario
+prisma/seed.ts        Sample data, demo login accounts, and a labor-productivity demo scenario
 railway.json          Railway build/deploy config
 .github/workflows/    CI
 ```
