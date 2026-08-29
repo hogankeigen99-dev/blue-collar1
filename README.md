@@ -95,6 +95,15 @@ same-day instead of on the next payroll cycle.
   change orders, and invoices, all GL-coded) — built to integrate with an
   existing accounting system (QuickBooks, Sage, Foundation, etc.) via import,
   not to replace it.
+- **Automation engine**: stage-triggered checklists. A company-wide,
+  admin-editable template (`/settings/checklist-templates`) defines what
+  checklist items exist per project stage; the moment a job is created
+  (PRECON) or moves into a new stage, that stage's items are generated on the
+  job automatically — visible and checkable right on the Command Center. The
+  same trigger point is where the other automations in the "job awarded →
+  closeout" chain already live: exception alerts are the automated overrun/
+  risk detection, and billing readiness is the automated "is the billing
+  package ready" check.
 
 Not in scope for this MVP: invoicing/payments themselves (billing readiness
 tells you *when*, not how to generate the invoice), notifications (alerts are

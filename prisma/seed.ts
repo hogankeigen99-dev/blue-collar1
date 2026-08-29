@@ -1,10 +1,32 @@
 import { PrismaClient } from "@prisma/client";
 import { hashPassword } from "../lib/password";
 import { startOfWeek, addDays } from "../lib/schedule";
+import { generateChecklistForStage } from "../lib/checklist";
 
 const prisma = new PrismaClient();
 
 async function main() {
+  // The automation engine's templates — company-wide, editable at /settings/checklist-templates.
+  await prisma.checklistTemplateItem.createMany({
+    data: [
+      { stage: "PRECON", title: "Confirm contract value and PM assignment", sortOrder: 1 },
+      { stage: "PRECON", title: "Add cost code budget lines", sortOrder: 2 },
+      { stage: "PRECON", title: "Assign foreman", sortOrder: 3 },
+      { stage: "MOBILIZATION", title: "Schedule crew for week 1", sortOrder: 1 },
+      { stage: "MOBILIZATION", title: "Submit material requirements", sortOrder: 2 },
+      { stage: "MOBILIZATION", title: "Confirm equipment needs", sortOrder: 3 },
+      { stage: "ACTIVE", title: "Submit first daily report", sortOrder: 1 },
+      { stage: "ACTIVE", title: "Confirm cost code budgets are tracking", sortOrder: 2 },
+      { stage: "PUNCH_LIST", title: "Walk punch list with customer", sortOrder: 1 },
+      { stage: "PUNCH_LIST", title: "Log punch items as change orders if scope changed", sortOrder: 2 },
+      { stage: "CLOSEOUT", title: "Confirm punch list complete", sortOrder: 1 },
+      { stage: "CLOSEOUT", title: "Collect required documents", sortOrder: 2 },
+      { stage: "CLOSEOUT", title: "Submit final invoice", sortOrder: 3 },
+      { stage: "COMPLETE", title: "Archive project documents", sortOrder: 1 },
+      { stage: "COMPLETE", title: "Confirm final invoice paid", sortOrder: 2 },
+    ],
+  });
+
   // Demo login accounts — local/dev only, never real production credentials.
   await prisma.user.create({
     data: {
@@ -46,7 +68,7 @@ async function main() {
     },
   });
 
-  await prisma.job.create({
+  const breakerPanel = await prisma.job.create({
     data: {
       title: "Fix breaker panel",
       description: "Replace faulty breaker in unit 4B",
@@ -56,8 +78,9 @@ async function main() {
       assignments: { create: [{ workerId: alice.id }] },
     },
   });
+  await generateChecklistForStage(prisma, breakerPanel.id, "PRECON");
 
-  await prisma.job.create({
+  const leakingPipe = await prisma.job.create({
     data: {
       title: "Leaking pipe under sink",
       description: "Kitchen sink leak, unit 2A",
@@ -67,6 +90,7 @@ async function main() {
       assignments: { create: [{ workerId: bob.id }] },
     },
   });
+  await generateChecklistForStage(prisma, leakingPipe.id, "PRECON");
 
   // --- Self-perform labor productivity demo data ---
 
@@ -122,6 +146,10 @@ async function main() {
       requiredDocsComplete: true,
     },
   });
+  // In real use each stage's checklist generates as the job passes through it;
+  // for seed data we just generate the stages it demonstrably went through.
+  await generateChecklistForStage(prisma, harborFoundation.id, "PRECON");
+  await generateChecklistForStage(prisma, harborFoundation.id, "COMPLETE");
   const harborSlabBudget = await prisma.jobCostCode.create({
     data: {
       jobId: harborFoundation.id,
@@ -176,6 +204,13 @@ async function main() {
       targetEndDate: new Date("2026-09-25"),
       stage: "ACTIVE",
     },
+  });
+  await generateChecklistForStage(prisma, riverside2.id, "PRECON");
+  await generateChecklistForStage(prisma, riverside2.id, "ACTIVE");
+  // PRECON is behind this job now — mark it done for a realistic demo.
+  await prisma.jobChecklistItem.updateMany({
+    where: { jobId: riverside2.id, stage: "PRECON" },
+    data: { done: true, doneAt: new Date("2026-08-09"), doneById: frank.id },
   });
   const phase2SlabBudget = await prisma.jobCostCode.create({
     data: {

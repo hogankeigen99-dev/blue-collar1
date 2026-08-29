@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/session";
+import { generateChecklistForStage } from "@/lib/checklist";
 
 function str(formData: FormData, key: string): string | undefined {
   const v = formData.get(key);
@@ -24,6 +25,9 @@ export async function updateJobCommandCenter(formData: FormData) {
 
   const targetStart = str(formData, "targetStartDate");
   const targetEnd = str(formData, "targetEndDate");
+  const newStage = str(formData, "stage");
+
+  const before = await prisma.job.findUniqueOrThrow({ where: { id: jobId }, select: { stage: true } });
 
   await prisma.job.update({
     where: { id: jobId },
@@ -33,11 +37,16 @@ export async function updateJobCommandCenter(formData: FormData) {
       foremanWorkerId: str(formData, "foremanWorkerId") ?? null,
       targetStartDate: targetStart ? new Date(targetStart) : null,
       targetEndDate: targetEnd ? new Date(targetEnd) : null,
-      stage: (str(formData, "stage") as never) ?? undefined,
+      stage: (newStage as never) ?? undefined,
       punchListComplete: formData.get("punchListComplete") === "on",
       requiredDocsComplete: formData.get("requiredDocsComplete") === "on",
     },
   });
+
+  // Automation: entering a new stage generates that stage's checklist.
+  if (newStage && newStage !== before.stage) {
+    await generateChecklistForStage(prisma, jobId, newStage);
+  }
 
   revalidatePath(`/jobs/${jobId}`);
   redirect(`/jobs/${jobId}`);

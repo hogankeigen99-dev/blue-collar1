@@ -102,6 +102,7 @@ model Worker {
   changeOrdersCreated ChangeOrder[]
   foremanForJobs      Job[]                  @relation("JobForeman")
   unavailability      WorkerUnavailability[]
+  checklistItemsDone  JobChecklistItem[]
 }
 
 // A day a worker is marked unavailable (PTO, sick, other commitment) — checked
@@ -177,6 +178,7 @@ model Job {
   equipmentAssignments EquipmentAssignment[]
   subcontractorCosts   SubcontractorCost[]
   invoices             Invoice[]
+  checklistItems       JobChecklistItem[]
 }
 
 // A real invoice record — "billed to date" is computed as the sum of SENT
@@ -426,4 +428,35 @@ model SubcontractorCost {
   actualAmount    Float                   @default(0)
   status          SubcontractorCostStatus @default(COMMITTED)
   createdAt       DateTime                @default(now())
+}
+
+// Company-wide template: what checklist items get auto-generated when a job
+// enters a given stage. Editable so the automation stays configurable
+// instead of hardcoded — the actual automation engine.
+model ChecklistTemplateItem {
+  id        String       @id @default(cuid())
+  stage     ProjectStage
+  title     String
+  sortOrder Int          @default(0)
+  createdAt DateTime     @default(now())
+
+  @@index([stage])
+}
+
+// A checklist item generated (or manually added) on a specific job. Source
+// distinguishes what the automation engine created from what a person added.
+model JobChecklistItem {
+  id        String       @id @default(cuid())
+  job       Job          @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  jobId     String
+  stage     ProjectStage
+  title     String
+  source    String       @default("MANUAL") // "AUTOMATED" | "MANUAL"
+  done      Boolean      @default(false)
+  doneAt    DateTime?
+  doneBy    Worker?      @relation(fields: [doneById], references: [id])
+  doneById  String?
+  createdAt DateTime     @default(now())
+
+  @@index([jobId, stage])
 }

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole, requireSession } from "@/lib/session";
+import { generateChecklistForStage } from "@/lib/checklist";
 
 function str(formData: FormData, key: string): string | undefined {
   const v = formData.get(key);
@@ -77,6 +78,9 @@ export async function createJob(formData: FormData) {
       },
     },
   });
+
+  // Automation: a newly-created ("awarded") job starts in PRECON — generate its checklist.
+  await generateChecklistForStage(prisma, job.id, "PRECON");
 
   revalidatePath("/jobs");
   revalidatePath("/");

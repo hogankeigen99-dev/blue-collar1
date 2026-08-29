@@ -54,6 +54,11 @@ export default async function RootLayout({
                       Accounting
                     </Link>
                   )}
+                  {session.role === "ADMIN" && (
+                    <Link href="/settings/checklist-templates" className="text-sm text-slate-600 hover:text-slate-900">
+                      Settings
+                    </Link>
+                  )}
                   <div className="ml-auto flex items-center gap-3">
                     <span className="text-sm text-slate-500">
                       {session.name} <span className="text-slate-400">({session.role})</span>

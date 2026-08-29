@@ -10,9 +10,11 @@ import { getBillingReadiness } from "@/lib/billing";
 import { formatMoney, formatDate, PROJECT_STAGE_LABEL, COST_CATEGORY_LABEL } from "@/lib/format";
 import { setJobBudget } from "@/lib/command-center-actions";
 import { createSubcontractorCost, updateSubcontractorCost } from "@/lib/subcontractor-actions";
+import { toggleChecklistItem, addChecklistItem } from "@/lib/checklist-actions";
 
 const STATUSES = ["SCHEDULED", "IN_PROGRESS", "COMPLETED", "CANCELLED"] as const;
 const BUDGET_CATEGORIES = ["LABOR", "MATERIAL", "EQUIPMENT", "SUBCONTRACTOR", "OTHER"] as const;
+const STAGES = ["PRECON", "MOBILIZATION", "ACTIVE", "PUNCH_LIST", "CLOSEOUT", "COMPLETE"] as const;
 
 export default async function JobDetailPage({
   params,
@@ -37,10 +39,10 @@ export default async function JobDetailPage({
     getJobCosting(id),
     getBillingReadiness(id),
   ]);
-  const subcontractorCosts = await prisma.subcontractorCost.findMany({
-    where: { jobId: id },
-    orderBy: { createdAt: "desc" },
-  });
+  const [subcontractorCosts, checklistItems] = await Promise.all([
+    prisma.subcontractorCost.findMany({ where: { jobId: id }, orderBy: { createdAt: "desc" } }),
+    prisma.jobChecklistItem.findMany({ where: { jobId: id }, orderBy: { createdAt: "asc" } }),
+  ]);
 
   if (!job) notFound();
 
@@ -157,6 +159,60 @@ export default async function JobDetailPage({
             Export to accounting (CSV)
           </a>
         )}
+      </div>
+
+      {/* Checklist — automation-generated on stage entry, plus manual items */}
+      <div className="space-y-3">
+        <h2 className="text-lg font-medium">Checklist</h2>
+          {checklistItems.length === 0 ? (
+            <p className="text-slate-500 text-sm">No checklist items yet.</p>
+          ) : (
+            <div className="bg-white border rounded-lg divide-y">
+              {checklistItems.map((item) => (
+                <form
+                  key={item.id}
+                  action={toggleChecklistItem}
+                  className="px-4 py-2 flex items-center gap-3 text-sm"
+                >
+                  <input type="hidden" name="id" value={item.id} />
+                  <input type="hidden" name="jobId" value={job.id} />
+                  <input type="hidden" name="done" value={item.done ? "" : "on"} />
+                  <button
+                    type="submit"
+                    className={`w-4 h-4 rounded border flex-shrink-0 ${item.done ? "bg-slate-900 border-slate-900" : "border-slate-300"}`}
+                    aria-label={item.done ? "Mark not done" : "Mark done"}
+                  />
+                  <span className={item.done ? "line-through text-slate-400" : ""}>{item.title}</span>
+                  <span className="ml-auto text-xs text-slate-400">
+                    {PROJECT_STAGE_LABEL[item.stage]} · {item.source === "AUTOMATED" ? "auto" : "manual"}
+                  </span>
+                </form>
+              ))}
+            </div>
+          )}
+          <details className="text-sm">
+            <summary className="cursor-pointer text-slate-500 hover:text-slate-700">+ Add checklist item</summary>
+            <form action={addChecklistItem} className="mt-2 flex flex-wrap items-end gap-2 bg-white border rounded-lg p-4">
+              <input type="hidden" name="jobId" value={job.id} />
+              <div>
+                <label className="block text-xs font-medium mb-1">Stage</label>
+                <select name="stage" defaultValue={job.stage} className="border rounded-md px-2 py-1 text-sm">
+                  {STAGES.map((s) => (
+                    <option key={s} value={s}>
+                      {PROJECT_STAGE_LABEL[s]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex-1 min-w-[200px]">
+                <label className="block text-xs font-medium mb-1">Title</label>
+                <input name="title" required className="w-full border rounded-md px-3 py-2 text-sm" />
+              </div>
+              <button type="submit" className="bg-slate-900 text-white text-sm px-3 py-2 rounded-md hover:bg-slate-700">
+                Add
+              </button>
+            </form>
+          </details>
       </div>
 
       {/* Job costing */}

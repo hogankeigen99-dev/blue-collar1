@@ -1,0 +1,75 @@
+"use server";
+
+import { prisma } from "@/lib/prisma";
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { requireRole, requireSession } from "@/lib/session";
+
+function str(formData: FormData, key: string): string | undefined {
+  const v = formData.get(key);
+  return typeof v === "string" && v.trim() !== "" ? v.trim() : undefined;
+}
+
+function num(formData: FormData, key: string): number | undefined {
+  const v = str(formData, key);
+  if (v === undefined) return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+export async function toggleChecklistItem(formData: FormData) {
+  await requireSession();
+  const id = str(formData, "id");
+  const jobId = str(formData, "jobId");
+  const doneById = str(formData, "doneById");
+  const done = formData.get("done") === "on";
+  if (!id || !jobId) throw new Error("Item and job are required");
+
+  await prisma.jobChecklistItem.update({
+    where: { id },
+    data: { done, doneAt: done ? new Date() : null, doneById: done ? doneById : null },
+  });
+
+  revalidatePath(`/jobs/${jobId}`);
+  redirect(`/jobs/${jobId}`);
+}
+
+export async function addChecklistItem(formData: FormData) {
+  await requireSession();
+  const jobId = str(formData, "jobId");
+  const stage = str(formData, "stage");
+  const title = str(formData, "title");
+  if (!jobId || !stage || !title) throw new Error("Job, stage, and title are required");
+
+  await prisma.jobChecklistItem.create({
+    data: { jobId, stage: stage as never, title, source: "MANUAL" },
+  });
+
+  revalidatePath(`/jobs/${jobId}`);
+  redirect(`/jobs/${jobId}`);
+}
+
+export async function createChecklistTemplateItem(formData: FormData) {
+  await requireRole("ADMIN");
+  const stage = str(formData, "stage");
+  const title = str(formData, "title");
+  if (!stage || !title) throw new Error("Stage and title are required");
+
+  await prisma.checklistTemplateItem.create({
+    data: { stage: stage as never, title, sortOrder: num(formData, "sortOrder") ?? 0 },
+  });
+
+  revalidatePath("/settings/checklist-templates");
+  redirect("/settings/checklist-templates");
+}
+
+export async function deleteChecklistTemplateItem(formData: FormData) {
+  await requireRole("ADMIN");
+  const id = str(formData, "id");
+  if (!id) throw new Error("Template item is required");
+
+  await prisma.checklistTemplateItem.delete({ where: { id } });
+
+  revalidatePath("/settings/checklist-templates");
+  redirect("/settings/checklist-templates");
+}
