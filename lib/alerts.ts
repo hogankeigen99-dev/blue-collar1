@@ -13,7 +13,8 @@ export type AlertType =
   | "UNAPPROVED_CHANGE_WORK"
   | "BILLING_BLOCKER"
   | "MARGIN_RISK"
-  | "EQUIPMENT_ISSUE";
+  | "EQUIPMENT_ISSUE"
+  | "COI_EXPIRED";
 
 export type Alert = {
   type: AlertType;
@@ -33,11 +34,13 @@ export const ALERT_TYPE_LABEL: Record<AlertType, string> = {
   BILLING_BLOCKER: "Billing blocker",
   MARGIN_RISK: "Margin risk",
   EQUIPMENT_ISSUE: "Equipment issue",
+  COI_EXPIRED: "COI expired",
 };
 
 const DAY_MS = 86_400_000;
 const MARGIN_WARNING_PCT = 0.1;
 const EQUIPMENT_ISSUE_WINDOW_DAYS = 3;
+const COI_WARNING_DAYS = 30;
 
 const jobWithAlertIncludes = {
   assignments: true,
@@ -46,6 +49,7 @@ const jobWithAlertIncludes = {
   dailyReports: { orderBy: { date: "desc" as const }, take: 1 },
   materialRequests: true,
   changeOrders: true,
+  subcontracts: { include: { vendor: true } },
 } satisfies Prisma.JobInclude;
 
 type JobForAlerts = Prisma.JobGetPayload<{ include: typeof jobWithAlertIncludes }>;
@@ -205,6 +209,29 @@ async function computeJobAlerts(
       jobTitle: job.title,
       message: `Equipment issue flagged ${daysAgo <= 0 ? "today" : `${daysAgo} day(s) ago`}: ${r.equipmentIssue}`,
     });
+  }
+
+  // COI expired — an executed subcontract's certificate of insurance has
+  // lapsed or is about to, on a job that's still actually running. Only
+  // EXECUTED agreements matter here — a DRAFT hasn't started work, and a
+  // CLOSED one is already done.
+  if (notDone) {
+    const executedSubs = job.subcontracts.filter((s) => s.agreementStatus === "EXECUTED" && s.coiExpirationDate);
+    for (const s of executedSubs) {
+      const daysToExpiry = Math.floor((s.coiExpirationDate!.getTime() - now) / DAY_MS);
+      if (daysToExpiry > COI_WARNING_DAYS) continue;
+      const vendorName = s.vendor?.name ?? "Subcontractor";
+      alerts.push({
+        type: "COI_EXPIRED",
+        severity: daysToExpiry < 0 ? "critical" : "warning",
+        jobId: job.id,
+        jobTitle: job.title,
+        message:
+          daysToExpiry < 0
+            ? `${vendorName}'s certificate of insurance expired ${Math.abs(daysToExpiry)} day(s) ago`
+            : `${vendorName}'s certificate of insurance expires in ${daysToExpiry} day(s)`,
+      });
+    }
   }
 
   // Billing blocker — jobs at closeout that aren't actually ready to invoice.

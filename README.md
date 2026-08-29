@@ -160,6 +160,22 @@ Command Center are never two different calculations of the same thing.
   seeded job that's fully closed out and paid was instead given 0%
   retainage, so the demo's "fully paid" jobs stay honest rather than
   faking a release event.
+- **Vendors & subcontracts** (`/vendors`, `lib/vendors.ts`) — a real
+  vendor/subcontractor master record instead of a free-text name typed
+  fresh on every material request or subcontractor line, so "how much have
+  we committed to this vendor across every job" is a real query, not a
+  string-matching exercise. Committed/actual spend and job count are
+  computed live per vendor across `MaterialRequest` and `Subcontract`, the
+  same "compute, don't store" pattern as job costing. A `Subcontract` is a
+  real agreement now — its own lifecycle (`DRAFT`/`EXECUTED`/`CLOSED`),
+  distinct from billing status (committed/invoiced/paid) — with
+  certificate-of-insurance tracking that's wired to a real exception
+  (`lib/alerts.ts`'s `COI_EXPIRED`: an executed subcontract on a still-open
+  job whose COI has lapsed or is about to), not a dead field. A new vendor
+  is found-or-created inline the moment its name is typed on the
+  material-request, subcontract, or Award forms — the same pattern already
+  used for a new `Customer` at Award time, no second "go create the
+  vendor" trip.
 - **Project Portfolio** (`/projects`, `lib/portfolio.ts`) — one row per
   project, filterable by PM/foreman/project type/stage/risk, sortable, with
   the same columns the Command Center already computes per job (schedule %,
@@ -239,7 +255,15 @@ a Contract with one starting SOV line from the entered terms; approving a
 change order adds a SOV line automatically with no separate entry;
 manually adding a line grows the scheduled total; and a pay application's
 live-computed amount and retainage match what's actually saved and shown
-on the invoices page afterward.
+on the invoices page afterward. Vendor/subcontract procurement has its own
+suite too (`tests/e2e/vendor-procurement.spec.ts`): the vendor directory
+aggregates committed/actual spend across every job a vendor appears on and
+flags an expired COI; that same expired COI shows up as a real exception
+on the still-active job it belongs to; adding a subcontract with a brand
+new vendor name creates a real `Vendor` record findable straight from the
+directory, and executing the agreement records when automatically; and a
+material request can be assigned an existing vendor from the picker, not
+retyped.
 
 ## Stack
 
@@ -356,14 +380,18 @@ on the invoices page afterward.
   change order is un-approved before it's been billed.
 - **Materials & procurement** (`/jobs/[id]/materials`): a field-flagged need
   opens a request automatically, or a PM can start one directly → approval →
-  vendor/PO → ordered → received, with vendor, PO #, and cost tracked at
+  vendor/PO → ordered → received, with a real `Vendor` record (picked from
+  the company directory or typed fresh inline), PO #, and cost tracked at
   each step.
 - **Equipment** (`/equipment`): assign owned/rented equipment to jobs for a
   date range, track actual pickup/return and downtime, and see cost against
   budget. Overlapping assignments for the same equipment are flagged, not
   silently allowed.
-- **Subcontractor costs**: committed vs. actual per vendor per job, tracked
-  inline on the Command Center.
+- **Subcontracts** (`/jobs/[id]/subcontracts`): a real subcontract
+  agreement per vendor per job — committed vs. actual, retainage %, an
+  agreement lifecycle (draft → executed → closed), and a COI expiration
+  date that actually drives an exception if it lapses on a job still
+  running.
 - **Billing readiness**: a computed checklist per job — completion, approved
   change orders, required documents, recent field reports, punch list, no
   missing costs, and no Schedule of Values line billed past its scheduled
@@ -738,6 +766,22 @@ lib/invoice-number.ts           Next "INV-{jobNumber}-{seq}" pay-application num
 app/jobs/[id]/contract/         View/edit the Contract & Schedule of Values
 app/jobs/[id]/invoices/new/pay-app-lines.tsx  Client component: live-computed amount/retainage
                                  per SOV line as % complete is typed, before submit
+
+--- Vendors & subcontracts ---
+lib/vendors.ts                  Read layer: getVendors() (directory with live committed/actual
+                                 spend + COI status per vendor), getVendor() (detail), and
+                                 resolveOrCreateVendorId() -- the shared inline find-or-create
+                                 used by the material-request, subcontract, and Award forms
+lib/vendor-actions.ts           Server Actions: createVendor, updateVendor
+lib/subcontract-actions.ts      Server Actions: createSubcontract, updateSubcontract (billing
+                                 status, agreement status, actual amount, COI expiration) --
+                                 renamed from lib/subcontractor-actions.ts as part of promoting
+                                 SubcontractorCost into Subcontract
+app/vendors/                    Vendor directory, new-vendor form, vendor detail (linked
+                                 subcontracts + material requests)
+app/jobs/[id]/subcontracts/     Subcontract list + new-subcontract form -- promoted out of the
+                                 job Command Center's old inline section, same reasoning as
+                                 change orders/materials/invoices already having their own pages
 prisma/schema.prisma  Data model
 prisma/seed.ts        Sample data, demo login accounts, seven simultaneous active/completed
                        projects each demonstrating one condition cleanly for the Company Command
@@ -746,12 +790,15 @@ prisma/seed.ts        Sample data, demo login accounts, seven simultaneous activ
                        pipeline (two wins each converted to a real Job, two losses and a no-bid
                        with reasons, two still-open bids), a real Contract + Schedule of Values on
                        every job with a contract value (multi-line, retainage, CO-sourced lines),
-                       and real multi-period pay-application history on several of them, plus the
-                       small-crew-project and estimate/actual-loop demo scenarios from earlier
-                       phases
+                       real multi-period pay-application history on several of them, a real Vendor
+                       directory (every material/subcontract commitment tied to one, not a
+                       free-text name) with one vendor's certificate of insurance deliberately
+                       lapsed to demonstrate the COI_EXPIRED alert live, plus the small-crew-project
+                       and estimate/actual-loop demo scenarios from earlier phases
 docs/ARCHITECTURE.md            Full company-lifecycle design (Lead/Bid through Executive Command)
-                                 -- the Opportunity pipeline and Contract/SOV/Billing are that
-                                 design's Phase 1, now both built
+                                 -- the Opportunity pipeline and Contract/SOV/Billing are Phase 1,
+                                 and Vendor/Subcontract procurement is the built half of Phase 2,
+                                 all now shipped
 docs/OPERATING-DATA-MODEL.md    Source-of-truth audit for every major business concept -- what
                                  this phase's company-wide views were built against
 tests/e2e/             Playwright E2E suite (npm run test:e2e) -- small-crew-project workflow,

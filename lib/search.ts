@@ -1,6 +1,6 @@
 import { scopedPrisma } from "@/lib/tenant";
 
-export type SearchResultType = "job" | "opportunity" | "customer" | "worker" | "costCode" | "changeOrder" | "materialRequest" | "equipment" | "document";
+export type SearchResultType = "job" | "opportunity" | "customer" | "worker" | "costCode" | "changeOrder" | "materialRequest" | "equipment" | "document" | "vendor";
 
 export type SearchResult = {
   type: SearchResultType;
@@ -20,6 +20,7 @@ const TYPE_LABEL: Record<SearchResultType, string> = {
   materialRequest: "Material request",
   equipment: "Equipment",
   document: "Document",
+  vendor: "Vendor",
 };
 export { TYPE_LABEL as SEARCH_TYPE_LABEL };
 
@@ -39,7 +40,7 @@ export async function globalSearch(companyId: string, query: string): Promise<Se
   const prisma = scopedPrisma(companyId);
   const ci = { contains: q, mode: "insensitive" as const };
 
-  const [jobs, opportunities, customers, workers, costCodes, changeOrders, materialRequests, equipment, documents] = await Promise.all([
+  const [jobs, opportunities, customers, workers, costCodes, changeOrders, materialRequests, equipment, documents, vendors] = await Promise.all([
     prisma.job.findMany({
       where: { OR: [{ title: ci }, { jobNumber: ci }] },
       take: PER_TYPE_LIMIT,
@@ -73,6 +74,11 @@ export async function globalSearch(companyId: string, query: string): Promise<Se
       take: PER_TYPE_LIMIT,
       select: { id: true, title: true, jobId: true, job: { select: { title: true } } },
     }),
+    prisma.vendor.findMany({
+      where: { OR: [{ name: ci }, { trade: ci }] },
+      take: PER_TYPE_LIMIT,
+      select: { id: true, name: true, trade: true },
+    }),
   ]);
 
   const results: SearchResult[] = [
@@ -85,6 +91,7 @@ export async function globalSearch(companyId: string, query: string): Promise<Se
     ...materialRequests.map((m) => ({ type: "materialRequest" as const, id: m.id, title: m.description, subtitle: m.job.title, href: `/jobs/${m.jobId}/materials` })),
     ...equipment.map((e) => ({ type: "equipment" as const, id: e.id, title: e.name, subtitle: e.type ?? "", href: `/equipment` })),
     ...documents.map((d) => ({ type: "document" as const, id: d.id, title: d.title, subtitle: d.job.title, href: `/jobs/${d.jobId}/documents` })),
+    ...vendors.map((v) => ({ type: "vendor" as const, id: v.id, title: v.name, subtitle: v.trade ?? "", href: `/vendors/${v.id}` })),
   ];
 
   return results;

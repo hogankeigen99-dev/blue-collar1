@@ -14,6 +14,20 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/** Finds-or-creates a Vendor by name for this company — a small in-process
+ * cache so the same vendor named across multiple jobs (e.g. "Summit
+ * Concrete Supply" supplying both Riverside Phase 2 and Sunrise Duplex)
+ * becomes one real Vendor row, not a duplicate per mention, mirroring
+ * lib/vendors.ts's resolveOrCreateVendorId for the real app flow. */
+const vendorCache = new Map<string, ReturnType<typeof prisma.vendor.create>>();
+function seedVendor(companyId: string, name: string, opts: { trade?: string; contactInfo?: string } = {}) {
+  const key = `${companyId}:${name}`;
+  if (!vendorCache.has(key)) {
+    vendorCache.set(key, prisma.vendor.create({ data: { companyId, name, trade: opts.trade, contactInfo: opts.contactInfo } }));
+  }
+  return vendorCache.get(key)!;
+}
+
 /** Creates a Contract + a default 3-line Schedule of Values (Mobilization
  * 10% / Contract work in place 80% / Final completion & closeout 10%) for a
  * job's contract value — the same shape lib/award-actions.ts creates
@@ -419,6 +433,8 @@ async function main() {
     ],
   });
 
+  const summitConcrete = await seedVendor(company.id, "Summit Concrete Supply", { trade: "Ready-mix concrete", contactInfo: "555-0801" });
+  const metroRebar = await seedVendor(company.id, "Metro Rebar & Supply", { trade: "Rebar supply", contactInfo: "555-0802" });
   await prisma.materialRequest.createMany({
     data: [
       {
@@ -427,7 +443,7 @@ async function main() {
         quantity: 140,
         unit: "CY",
         status: "RECEIVED",
-        vendor: "Summit Concrete Supply",
+        vendorId: summitConcrete.id,
         poNumber: "PO-1042",
         unitCost: 168,
         totalCost: 23520,
@@ -441,7 +457,7 @@ async function main() {
         quantity: 12,
         unit: "TON",
         status: "ORDERED",
-        vendor: "Metro Rebar & Supply",
+        vendorId: metroRebar.id,
         poNumber: "PO-1051",
         unitCost: 1150,
         totalCost: 13800,
@@ -465,14 +481,21 @@ async function main() {
     },
   });
 
-  await prisma.subcontractorCost.create({
+  const aceRebar = await seedVendor(company.id, "Ace Rebar Placing", { trade: "Rebar placement", contactInfo: "555-0803" });
+  await prisma.subcontract.create({
     data: {
       jobId: riverside2.id,
-      vendor: "Ace Rebar Placing",
+      vendorId: aceRebar.id,
       description: "Rebar placement, Phase 2 slab",
       committedAmount: 45000,
       actualAmount: 22000,
       status: "INVOICED",
+      agreementStatus: "EXECUTED",
+      executedDate: new Date("2026-08-10"),
+      retainagePct: 10,
+      // Deliberately lapsed — demonstrates lib/alerts.ts's COI_EXPIRED check
+      // on a job that's still actively running.
+      coiExpirationDate: new Date("2026-08-20"),
     },
   });
 
@@ -736,7 +759,7 @@ async function main() {
       quantity: 3,
       unit: "TON",
       status: "ORDERED",
-      vendor: "Metro Rebar & Supply",
+      vendorId: metroRebar.id,
       poNumber: "PO-2205",
       unitCost: 1180,
       totalCost: 3540,
@@ -855,7 +878,7 @@ async function main() {
       quantity: 60,
       unit: "CY",
       status: "RECEIVED",
-      vendor: "Summit Concrete Supply",
+      vendorId: summitConcrete.id,
       poNumber: "PO-2201",
       unitCost: 162,
       totalCost: 9720,
@@ -891,14 +914,18 @@ async function main() {
     },
   });
 
-  await prisma.subcontractorCost.create({
+  const blueLinePumping = await seedVendor(company.id, "Blue Line Concrete Pumping", { trade: "Concrete pumping", contactInfo: "555-0804" });
+  await prisma.subcontract.create({
     data: {
       jobId: sunriseDuplex.id,
-      vendor: "Blue Line Concrete Pumping",
+      vendorId: blueLinePumping.id,
       description: "Pump operator, slab pours",
       committedAmount: 2800,
       actualAmount: 1400,
       status: "INVOICED",
+      agreementStatus: "EXECUTED",
+      executedDate: projectStart,
+      coiExpirationDate: addDays(today, 90),
     },
   });
 
@@ -1007,7 +1034,7 @@ async function main() {
       quantity: 2,
       unit: "TON",
       status: "ORDERED",
-      vendor: "Metro Rebar & Supply",
+      vendorId: metroRebar.id,
       poNumber: "PO-3301",
       unitCost: 1180,
       totalCost: 2360,
@@ -1093,7 +1120,7 @@ async function main() {
       quantity: 35,
       unit: "CY",
       status: "RECEIVED",
-      vendor: "Cedar Ready Mix",
+      vendorId: (await seedVendor(company.id, "Cedar Ready Mix", { trade: "Ready-mix concrete" })).id,
       poNumber: "PO-3290",
       unitCost: 160,
       totalCost: 5600,
@@ -1117,14 +1144,17 @@ async function main() {
     },
   });
 
-  await prisma.subcontractorCost.create({
+  const precisionSawCutting = await seedVendor(company.id, "Precision Saw Cutting", { trade: "Concrete cutting" });
+  await prisma.subcontract.create({
     data: {
       jobId: cedarCourt.id,
-      vendor: "Precision Saw Cutting",
+      vendorId: precisionSawCutting.id,
       description: "Control joint saw-cutting",
       committedAmount: 1200,
       actualAmount: 1200,
       status: "PAID",
+      agreementStatus: "CLOSED",
+      executedDate: cedarStart,
     },
   });
 
@@ -1384,14 +1414,19 @@ async function main() {
       { jobId: bayside.id, category: "SUBCONTRACTOR", estimatedAmount: 130000 },
     ],
   });
-  await prisma.subcontractorCost.create({
+  const coastalPaving = await seedVendor(company.id, "Coastal Paving Co", { trade: "Paving & sitework", contactInfo: "555-0805" });
+  await prisma.subcontract.create({
     data: {
       jobId: bayside.id,
-      vendor: "Coastal Paving Co",
+      vendorId: coastalPaving.id,
       description: "Grading, utility tie-ins, and asphalt paving",
       committedAmount: 130000,
       actualAmount: 0,
       status: "COMMITTED",
+      agreementStatus: "EXECUTED",
+      executedDate: addDays(today, -35),
+      retainagePct: 10,
+      coiExpirationDate: addDays(today, 60),
     },
   });
   const baysideExcavation = await prisma.jobCostCode.create({
@@ -1486,7 +1521,7 @@ async function main() {
       quantity: 80,
       unit: "SQ",
       status: "ORDERED",
-      vendor: "Statewide Roofing Supply",
+      vendorId: (await seedVendor(company.id, "Statewide Roofing Supply", { trade: "Roofing materials" })).id,
       poNumber: "PO-4410",
       unitCost: 210,
       totalCost: 16800,

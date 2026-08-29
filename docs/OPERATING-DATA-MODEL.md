@@ -204,8 +204,67 @@ the same shape before wiring a second consumer to it.
   "material needed" field (`lib/daily-report-actions.ts`) — the same
   no-duplicate-entry rule as production.
 - **Consumed by:** job costing (committed/actual material cost), billing
-  readiness, alerts (`MATERIAL_RISK`), now Field activity and Company
-  Command's material-risk bucket.
+  readiness, alerts (`MATERIAL_RISK`), Field activity, Company Command's
+  material-risk bucket, now the Vendor directory's material-spend rollup.
+- **Finding (this phase):** `vendor` used to be a free-text string, typed
+  fresh on every request with no guarantee two PMs spelled the same
+  supplier the same way. It's now `vendorId`, a real FK to `Vendor` — see
+  below.
+
+### Vendor
+
+- **Source of truth:** `Vendor` — name, trade, contact info. A genuine
+  tenant-root model (own `companyId`, like `Customer`/`CostCode`), not a
+  child of anything.
+- **Created by:** `/vendors/new` directly, or inline the moment someone
+  types a new name on the material-request, subcontract, or Award forms
+  (`lib/vendors.ts`'s `resolveOrCreateVendorId` finds-or-creates by name —
+  the same inline-create pattern the Award form already used for a new
+  `Customer`). No second "go create the vendor first" trip.
+- **Consumed by:** `MaterialRequest.vendorId`, `Subcontract.vendorId`, the
+  `/vendors` directory (committed/actual spend and job count computed live
+  across both, never stored), `lib/alerts.ts`'s `COI_EXPIRED` check, global
+  search.
+- **Live or snapshot:** live — a vendor's own record can be edited
+  (trade/contact info) without touching any commitment already tied to it.
+- **Migration note:** the free-text `vendor` strings on `MaterialRequest`
+  and `SubcontractorCost` were backfilled into real `Vendor` rows (one per
+  distinct name per company) in the same migration that added the FK
+  columns, then the string columns were dropped — nullable-column →
+  backfill → drop, the same non-destructive shape `Job.jobNumber`'s
+  migration used earlier in this project. Every pre-existing commitment
+  still points at a real vendor after the migration; nothing was silently
+  orphaned.
+
+### Subcontract (formerly SubcontractorCost — promoted into a real agreement)
+
+- **Source of truth:** `Subcontract` — committed vs. actual dollars (as
+  before), plus what's genuinely new: `agreementStatus`
+  (`DRAFT`/`EXECUTED`/`CLOSED` — has this actually been signed yet?),
+  `retainagePct`, and `coiExpirationDate`.
+- **Two independent status tracks, both real:** `status` is billing/payment
+  progress (committed only, invoiced, paid); `agreementStatus` is the
+  contract's own lifecycle. A subcontract can be fully `EXECUTED` while
+  still only `COMMITTED` (nothing invoiced yet), or `CLOSED` while still
+  being paid down — these are different facts, deliberately not merged
+  into one status field.
+- **Created by:** `lib/subcontract-actions.ts`'s `createSubcontract`
+  (`/jobs/[id]/subcontracts/new`) directly, or by `lib/award-actions.ts`
+  for an initial subcontractor row entered at Award time (started
+  `EXECUTED` there — a committed cost entered at Award already implies an
+  agreed scope, not a draft).
+- **Updated by:** `updateSubcontract` — billing status, agreement status,
+  actual amount, COI expiration date. Executing it for the first time
+  (`agreementStatus` → `EXECUTED`) records `executedDate` automatically;
+  never a separate typed field.
+- **Consumed by:** job costing (committed/actual subcontractor cost,
+  unchanged), the Vendor directory, and — the genuinely new consumer —
+  `lib/alerts.ts`'s `COI_EXPIRED` check: an `EXECUTED` subcontract on a
+  still-open job whose certificate of insurance has lapsed or is about to
+  is a real compliance/liability gap, not a decorative field. A `DRAFT`
+  agreement (work hasn't started) or `CLOSED` one (already done) doesn't
+  trigger it.
+- **Live or snapshot:** live.
 
 ### Equipment assignment
 
@@ -339,3 +398,15 @@ them stopped being manually typed. The one new automation this phase adds
 (a `ChangeOrder`'s approval creating and un-creating its own `ContractLine`)
 follows the same "one write path per fact" rule as every stage transition
 in this document.
+
+**Procurement phase (Vendor / Subcontract):** one new table — `Vendor` —
+plus `SubcontractorCost` promoted (renamed, in place, existing rows
+preserved) into `Subcontract` with a real agreement lifecycle and COI
+compliance field. This is the flip side of the Contract/SOV phase's
+pattern: instead of a flat field being replaced by a computed rollup, a
+*free-text string* (`vendor`) is replaced by a real record with its own
+identity, so "how much have we committed to this vendor across every job"
+and "is anyone's insurance about to lapse" become real queries instead of
+a string-matching exercise. Both `MaterialRequest.vendor` and
+`SubcontractorCost.vendor` pointed at the same missing entity — one
+`Vendor` table serves both, not two parallel ones.

@@ -21,7 +21,7 @@ export async function getBillingReadiness(companyId: string, jobId: string): Pro
     prisma.changeOrder.findMany({ where: { jobId } }),
     prisma.dailyReport.findMany({ where: { jobId }, orderBy: { date: "desc" }, take: 1 }),
     prisma.materialRequest.findMany({ where: { jobId } }),
-    prisma.subcontractorCost.findMany({ where: { jobId } }),
+    prisma.subcontract.findMany({ where: { jobId } }),
     prisma.contract.findFirst({ where: { jobId }, include: { lines: { include: { invoiceLines: true } } } }),
   ]);
 

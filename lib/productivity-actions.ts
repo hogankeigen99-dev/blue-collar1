@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireSession, requireRole } from "@/lib/session";
 import { logAudit } from "@/lib/audit";
+import { resolveOrCreateVendorId } from "@/lib/vendors";
 
 function str(formData: FormData, key: string): string | undefined {
   const v = formData.get(key);
@@ -67,11 +68,12 @@ export async function updateMaterialRequest(formData: FormData) {
   const expectedDeliveryRaw = str(formData, "expectedDeliveryDate");
 
   const totalCost = num(formData, "totalCost");
+  const vendorId = await resolveOrCreateVendorId(prisma, session.companyId, str(formData, "vendorId"), str(formData, "newVendorName"));
   const updated = await prisma.materialRequest.update({
     where: { id },
     data: {
       status: status as never,
-      vendor: str(formData, "vendor"),
+      vendorId,
       poNumber: str(formData, "poNumber"),
       unitCost: num(formData, "unitCost"),
       totalCost,

@@ -23,6 +23,7 @@ const TENANT_MODELS = new Set([
   "AuditLog",
   "Division",
   "Opportunity",
+  "Vendor",
 ]);
 
 const READ_OPS = new Set(["findFirst", "findFirstOrThrow", "findMany", "count", "aggregate", "groupBy"]);

@@ -79,6 +79,12 @@ enum SubcontractorCostStatus {
   PAID
 }
 
+enum SubcontractAgreementStatus {
+  DRAFT
+  EXECUTED
+  CLOSED
+}
+
 enum InvoiceStatus {
   DRAFT
   SENT
@@ -118,6 +124,7 @@ model Company {
   ssoConfig              SsoConfig?
   integrationCredentials IntegrationCredential[]
   opportunities          Opportunity[]
+  vendors                Vendor[]
 }
 
 // Organizational segmentation within a company (e.g. "Concrete Division",
@@ -272,6 +279,28 @@ model Customer {
   @@index([companyId])
 }
 
+// Vendor/subcontractor master record — the real entity a MaterialRequest or
+// Subcontract points to instead of a free-text name, so "how much have we
+// committed to this vendor across every job" and COI compliance are real
+// queries instead of a string-matching exercise. Performance fields
+// (committed/actual spend, job count) are computed on read
+// (lib/vendors.ts), not stored here — same "compute, don't store" pattern
+// as everything else in this app.
+model Vendor {
+  id               String            @id @default(cuid())
+  company          Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId        String
+  name             String
+  trade            String? // e.g. "Electrical", "Ready-mix concrete"
+  contactInfo      String?
+  createdAt        DateTime          @default(now())
+  materialRequests MaterialRequest[]
+  subcontracts     Subcontract[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+}
+
 // Company-wide win rate over time, and a company's true win rate stays
 // visible even for prospects that went nowhere. WON is the only path a
 // Job gets created from an Opportunity — see lib/award-actions.ts.
@@ -404,7 +433,7 @@ model Job {
   dailyReports         DailyReport[]
   materialRequests     MaterialRequest[]
   equipmentAssignments EquipmentAssignment[]
-  subcontractorCosts   SubcontractorCost[]
+  subcontracts         Subcontract[]
   invoices             Invoice[]
   checklistItems       JobChecklistItem[]
   documents            Document[]
@@ -735,7 +764,8 @@ model MaterialRequest {
   quantity             Float
   unit                 String
   status               MaterialRequestStatus @default(REQUESTED)
-  vendor               String?
+  vendor               Vendor?               @relation(fields: [vendorId], references: [id])
+  vendorId             String?
   poNumber             String?
   unitCost             Float?
   totalCost            Float?
@@ -784,18 +814,29 @@ model EquipmentAssignment {
   @@index([jobId])
 }
 
-// Subcontract cost tracking — committed contract value vs. what's actually
-// been invoiced/paid, feeding job costing's subcontractor column.
-model SubcontractorCost {
-  id              String                  @id @default(cuid())
-  job             Job                     @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  jobId           String
-  vendor          String
-  description     String?
-  committedAmount Float
-  actualAmount    Float                   @default(0)
-  status          SubcontractorCostStatus @default(COMMITTED)
-  createdAt       DateTime                @default(now())
+// A real subcontract agreement — promoted from a flat committed-vs-actual
+// line item. Two independent status tracks, both real and both needed:
+// `status` is billing/payment progress (committed only, invoiced, paid);
+// `agreementStatus` is the contract's own lifecycle (drafted, signed,
+// closed out) — a subcontract can be fully EXECUTED while still only
+// COMMITTED (nothing invoiced yet), or CLOSED while still being paid down.
+model Subcontract {
+  id                String                     @id @default(cuid())
+  job               Job                        @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  jobId             String
+  vendor            Vendor?                    @relation(fields: [vendorId], references: [id])
+  vendorId          String?
+  description       String?
+  committedAmount   Float
+  actualAmount      Float                      @default(0)
+  status            SubcontractorCostStatus    @default(COMMITTED)
+  agreementStatus   SubcontractAgreementStatus @default(DRAFT)
+  retainagePct      Float?
+  // Certificate-of-insurance compliance — a real construction-specific gap
+  // (lib/alerts.ts's COI_EXPIRED check reads this, not decorative).
+  coiExpirationDate DateTime?
+  executedDate      DateTime?
+  createdAt         DateTime                   @default(now())
 }
 
 // Company-wide template: what checklist items get auto-generated when a job

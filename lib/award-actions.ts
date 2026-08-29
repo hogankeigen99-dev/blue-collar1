@@ -7,6 +7,7 @@ import { requireRole } from "@/lib/session";
 import { generateChecklistForStage } from "@/lib/checklist";
 import { generateNextJobNumber } from "@/lib/job-number";
 import { logAudit } from "@/lib/audit";
+import { resolveOrCreateVendorId } from "@/lib/vendors";
 import type { CostCategory } from "@prisma/client";
 
 const DAY_MS = 86_400_000;
@@ -165,7 +166,8 @@ export async function awardProject(formData: FormData) {
     });
   }
 
-  // Initial materials
+  // Initial materials — resolved sequentially (not Promise.all) so two rows
+  // naming the same new vendor don't race to create duplicate Vendor rows.
   const materialRows = zipRows(formData, [
     "materialDescription",
     "materialQty",
@@ -173,16 +175,17 @@ export async function awardProject(formData: FormData) {
     "materialVendor",
     "materialExpected",
   ] as const).filter((r) => r.materialDescription);
-  if (materialRows.length > 0) {
-    await prisma.materialRequest.createMany({
-      data: materialRows.map((r) => ({
+  for (const r of materialRows) {
+    const vendorId = await resolveOrCreateVendorId(prisma, session.companyId, undefined, r.materialVendor || undefined);
+    await prisma.materialRequest.create({
+      data: {
         jobId: job.id,
         description: r.materialDescription,
         quantity: Number(r.materialQty) || 0,
         unit: r.materialUnit || "EA",
-        vendor: r.materialVendor || undefined,
+        vendorId,
         expectedDeliveryDate: r.materialExpected ? new Date(r.materialExpected) : undefined,
-      })),
+      },
     });
   }
 
@@ -201,18 +204,23 @@ export async function awardProject(formData: FormData) {
     });
   }
 
-  // Initial subcontractors
+  // Initial subcontractors — a committed cost entered at Award already
+  // implies an agreed scope/amount, so these start EXECUTED rather than
+  // the form default of DRAFT.
   const subRows = zipRows(formData, ["subVendor", "subDescription", "subAmount"] as const).filter(
     (r) => r.subVendor
   );
-  if (subRows.length > 0) {
-    await prisma.subcontractorCost.createMany({
-      data: subRows.map((r) => ({
+  for (const r of subRows) {
+    const vendorId = await resolveOrCreateVendorId(prisma, session.companyId, undefined, r.subVendor);
+    await prisma.subcontract.create({
+      data: {
         jobId: job.id,
-        vendor: r.subVendor,
+        vendorId,
         description: r.subDescription || undefined,
         committedAmount: Number(r.subAmount) || 0,
-      })),
+        agreementStatus: "EXECUTED",
+        executedDate: new Date(),
+      },
     });
   }
 

@@ -40,7 +40,7 @@ export async function getJobCosting(companyId: string, jobId: string): Promise<J
       prisma.jobCostCode.findMany({ where: { jobId }, include: { entries: { include: { enteredBy: true } } } }),
       prisma.materialRequest.findMany({ where: { jobId } }),
       prisma.equipmentAssignment.findMany({ where: { jobId }, include: { equipment: true } }),
-      prisma.subcontractorCost.findMany({ where: { jobId } }),
+      prisma.subcontract.findMany({ where: { jobId } }),
       prisma.changeOrder.findMany({ where: { jobId } }),
       prisma.invoice.findMany({ where: { jobId, status: { in: ["SENT", "PAID"] } } }),
       prisma.contract.findFirst({ where: { jobId }, include: { lines: true } }),

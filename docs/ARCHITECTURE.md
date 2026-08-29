@@ -312,41 +312,50 @@ changes proposed here; it's the reference implementation.
 
 ---
 
-### 3.8 Procurement — **Partial**
+### 3.8 Procurement — **Built** (vendor master + real subcontract agreements)
 
 **Exists.** `MaterialRequest` (full status lifecycle:
-`REQUESTED→APPROVED→PO_ISSUED→ORDERED→RECEIVED`) and `SubcontractorCost`
-(committed vs. actual). Both work today but identify their vendor with a
-free-text string.
+`REQUESTED→APPROVED→PO_ISSUED→ORDERED→RECEIVED`) and `Subcontract`
+(renamed in place from `SubcontractorCost`, existing rows preserved —
+committed vs. actual, plus what's new below).
 
-**Missing.** A real vendor/subcontractor master record — required for
-vendor performance history (§3.9) and AP aging (§3.13), neither of which
-can be built on a free-text field.
-
-**Target model.**
+**Shipped model.**
 ```
 Vendor
   id, companyId
   name, trade (e.g. "Electrical", "Ready-mix"), contactInfo
-  -- performance fields are computed (below), not stored here
+  -- performance fields are computed (lib/vendors.ts), not stored here
 
-Subcontract         -- promotes SubcontractorCost into a real agreement
+Subcontract         -- promoted from SubcontractorCost into a real agreement
   id, jobId, vendorId
-  scopeDescription, committedAmount, retainagePct
+  description, committedAmount, retainagePct
   coiExpirationDate?    -- certificate-of-insurance compliance, a real
-                            construction-specific gap today
-  status          DRAFT | EXECUTED | CLOSED
+                            construction-specific gap, now a real alert
+                            (lib/alerts.ts's COI_EXPIRED) not a dead field
+  status            COMMITTED | INVOICED | PAID        -- billing progress
+  agreementStatus   DRAFT | EXECUTED | CLOSED           -- contract lifecycle
+  executedDate?
 ```
+(`status` and `agreementStatus` are deliberately two independent fields —
+a subcontract can be fully `EXECUTED` while still only `COMMITTED`, or
+`CLOSED` while still being paid down.)
 
-**Migration note:** `MaterialRequest.vendor` and `SubcontractorCost.vendor`
-(strings) become `vendorId` FKs to the new `Vendor` table — an additive
-migration (nullable `vendorId` alongside the existing string, backfilled
-by matching distinct vendor names into new `Vendor` rows, string column
-dropped once backfilled), following the same nullable→backfill→NOT NULL
-pattern already used elsewhere in this project's migrations.
+**Migration.** `MaterialRequest.vendor` and `SubcontractorCost.vendor`
+(free-text strings) became `vendorId` FKs to the new `Vendor` table:
+nullable `vendorId` added alongside the existing string, backfilled by
+matching each distinct vendor name into a new `Vendor` row (one per
+company), string column dropped once backfilled — the same
+nullable→backfill→drop pattern `Job.jobNumber`'s migration used earlier in
+this project, applied to a real vendor rename instead of a computed field
+this time.
 
-**Automation.** A `SubBid` marked `SELECTED` (§3.2) creates the
-`Subcontract` pre-filled with vendor and amount.
+**Automation.** `Vendor` is found-or-created inline the moment someone
+types a new name on the material-request, subcontract, or Award forms
+(`lib/vendors.ts`'s `resolveOrCreateVendorId`) — no second "go create the
+vendor" trip, same pattern the Award form already used for a new
+`Customer`. A `SubBid` marked `SELECTED` (§3.2, still not built) would
+create the `Subcontract` pre-filled with vendor and amount — not
+reachable yet since `SubBid` itself isn't built.
 
 ---
 
@@ -657,11 +666,26 @@ either, but wasn't asked for; still next, along with Procurement
 formalization below.
 
 ### Phase 2 — Money in/out: Procurement formalization + Cash
-`Vendor`, `Subcontract`, `SubBid` (procurement formalization — replacing
-`MaterialRequest`/`SubcontractorCost`'s free-text vendor field); `/cash`
-(AR/AP aging, forecast) over the `Contract`/`Invoice` data that now
-exists. SOV-based progress billing itself shipped in Phase 1 above,
-ahead of schedule, once Contract existed — nothing here blocks on it.
+
+**`Vendor`/`Subcontract` half: built.** A real vendor master record
+(`Vendor`) replacing the free-text `vendor` string on both
+`MaterialRequest` and `SubcontractorCost`; `SubcontractorCost` itself
+promoted (renamed in place) into `Subcontract` with a real agreement
+lifecycle (`DRAFT`/`EXECUTED`/`CLOSED`) and COI-compliance tracking that
+now feeds a real alert (`lib/alerts.ts`'s `COI_EXPIRED`). See
+`docs/OPERATING-DATA-MODEL.md`'s §Vendor and §Subcontract, and the
+README's "Company Operating Core" section, for what's live.
+
+**`SubBid` half: still not built.** No bid-leveling entity yet (§3.2
+remains partial) — a `Subcontract` today is entered directly, not
+promoted from a selected sub-bid. Not reopened this phase; still next.
+
+**`/cash` half: still not built.** AR/AP aging and a cash-flow forecast
+over the `Contract`/`Invoice`/`Subcontract`/`MaterialRequest` data that
+now all exists — nothing blocks on it structurally, it just wasn't asked
+for this phase. SOV-based progress billing itself shipped in the prior
+phase, ahead of its originally planned Phase 2 slot, once `Contract`
+existed — nothing here blocked on it either.
 
 ### Phase 3 — Field/Schedule maturity
 `SchedulePhase`, Closeout maturity (warranty, lien waivers, retainage

@@ -24,7 +24,7 @@ async function buildJobContext(companyId: string, jobId: string): Promise<{ jobT
     prisma.dailyReport.findMany({ where: { jobId }, orderBy: { date: "desc" }, take: 5 }),
     prisma.changeOrder.findMany({ where: { jobId }, orderBy: { createdAt: "desc" } }),
     prisma.materialRequest.findMany({ where: { jobId } }),
-    prisma.subcontractorCost.findMany({ where: { jobId } }),
+    prisma.subcontract.findMany({ where: { jobId }, include: { vendor: true } }),
     prisma.invoice.findMany({ where: { jobId } }),
   ]);
 
@@ -60,9 +60,11 @@ async function buildJobContext(companyId: string, jobId: string): Promise<{ jobT
     lines.push(`  "${m.description}" — status ${m.status}, qty ${m.quantity} ${m.unit}, cost ${m.totalCost ?? "unset"}${m.expectedDeliveryDate ? `, expected ${m.expectedDeliveryDate.toISOString().slice(0, 10)}` : ""}`);
   }
   lines.push("");
-  lines.push(`Subcontractor costs (${subcontractorCosts.length}):`);
+  lines.push(`Subcontracts (${subcontractorCosts.length}):`);
   for (const s of subcontractorCosts) {
-    lines.push(`  ${s.vendor} — status ${s.status}, committed ${s.committedAmount}, actual ${s.actualAmount}`);
+    lines.push(
+      `  ${s.vendor?.name ?? "Unnamed vendor"} — agreement ${s.agreementStatus}, billing status ${s.status}, committed ${s.committedAmount}, actual ${s.actualAmount}`
+    );
   }
   lines.push("");
   lines.push(`Invoices (${invoices.length}):`);

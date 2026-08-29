@@ -25,6 +25,7 @@ const WHY: Record<AlertType, string> = {
   BILLING_BLOCKER: "The job is at closeout but isn't actually ready to invoice.",
   MARGIN_RISK: "Projected profitability on this job has slipped below a healthy margin.",
   EQUIPMENT_ISSUE: "A piece of equipment is having a problem that can slow or stop the crew.",
+  COI_EXPIRED: "A subcontractor's certificate of insurance has lapsed or is about to — a real compliance/liability gap.",
 };
 
 /** What happens if this exception is left unaddressed — the forward-looking
@@ -39,6 +40,7 @@ const IMPACT: Record<AlertType, string> = {
   BILLING_BLOCKER: "Can't invoice this job until it's cleared — cash collection is delayed.",
   MARGIN_RISK: "This job may finish at a loss or far below target profit.",
   EQUIPMENT_ISSUE: "Can slow or fully stop today's work if it's not addressed.",
+  COI_EXPIRED: "Work performed without valid coverage exposes the company to uninsured claims.",
 };
 
 const ACTION: Record<AlertType, { label: string; text: string; href: (jobId: string) => string }> = {
@@ -86,6 +88,11 @@ const ACTION: Record<AlertType, { label: string; text: string; href: (jobId: str
     label: "Address equipment",
     text: "Get the equipment serviced, swapped, or worked around before it costs more downtime.",
     href: (jobId) => `/jobs/${jobId}`,
+  },
+  COI_EXPIRED: {
+    label: "Get a current COI",
+    text: "Contact the subcontractor for an updated certificate of insurance before more work is performed.",
+    href: (jobId) => `/jobs/${jobId}/subcontracts`,
   },
 };
 

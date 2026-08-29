@@ -7,6 +7,7 @@ const LINKS = [
   { href: "/company/resources", title: "Resource command", desc: "Crews today, availability, upcoming starts, equipment location" },
   { href: "/workers", title: "Workers", desc: "Crew roster, roles, labor rates, availability" },
   { href: "/customers", title: "Customers", desc: "Customer records and contact info" },
+  { href: "/vendors", title: "Vendors", desc: "Vendor/subcontractor directory, committed spend, and COI compliance" },
   { href: "/equipment", title: "Equipment", desc: "Owned/rented equipment and assignment history" },
   { href: "/settings/divisions", title: "Divisions", desc: "Organizational/business-line grouping" },
 ];

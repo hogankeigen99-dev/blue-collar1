@@ -11,7 +11,6 @@ import { getProjectHealth } from "@/lib/project-health";
 import { ALERT_TYPE_LABEL } from "@/lib/alerts";
 import { formatMoney, formatDate, PROJECT_STAGE_LABEL, COST_CATEGORY_LABEL } from "@/lib/format";
 import { setJobBudget } from "@/lib/command-center-actions";
-import { createSubcontractorCost, updateSubcontractorCost } from "@/lib/subcontractor-actions";
 import { toggleChecklistItem, addChecklistItem } from "@/lib/checklist-actions";
 import { pushJobToAccountingConnector } from "@/lib/accounting/sage-export-actions";
 import { getSageConnection } from "@/lib/accounting/sage-tokens";
@@ -82,10 +81,7 @@ export default async function JobDetailPage({
     getBillingReadiness(session.companyId, id),
     getProjectHealth(session.companyId, id),
   ]);
-  const [subcontractorCosts, checklistItems] = await Promise.all([
-    prisma.subcontractorCost.findMany({ where: { jobId: id }, orderBy: { createdAt: "desc" } }),
-    prisma.jobChecklistItem.findMany({ where: { jobId: id }, orderBy: { createdAt: "asc" } }),
-  ]);
+  const checklistItems = await prisma.jobChecklistItem.findMany({ where: { jobId: id }, orderBy: { createdAt: "asc" } });
 
   const canManage = canManageJobs(session.role);
   const canEstimate = canManageEstimates(session.role);
@@ -281,6 +277,9 @@ export default async function JobDetailPage({
         <Link href={`/jobs/${job.id}/contract`} className="bg-white border rounded-md px-3 py-1.5 hover:bg-slate-50">
           Contract &amp; SOV
         </Link>
+        <Link href={`/jobs/${job.id}/subcontracts`} className="bg-white border rounded-md px-3 py-1.5 hover:bg-slate-50">
+          Subcontracts
+        </Link>
         <Link href={`/jobs/${job.id}/invoices`} className="bg-white border rounded-md px-3 py-1.5 hover:bg-slate-50">
           Invoices
         </Link>
@@ -470,74 +469,6 @@ export default async function JobDetailPage({
             </div>
           ))}
         </div>
-      </div>
-
-      {/* Subcontractors */}
-      <div className="space-y-3">
-        <h2 className="text-lg font-medium">Subcontractors</h2>
-        {subcontractorCosts.length === 0 ? (
-          <p className="text-slate-500 text-sm">No subcontractor costs recorded yet.</p>
-        ) : (
-          <div className="bg-white border rounded-lg divide-y">
-            {subcontractorCosts.map((s) => (
-              <div key={s.id} className="px-4 py-3 flex items-center justify-between text-sm">
-                <div>
-                  <div className="font-medium">{s.vendor}</div>
-                  <div className="text-slate-500 text-xs">
-                    {s.description ?? "—"} · Committed {formatMoney(s.committedAmount)} · Actual {formatMoney(s.actualAmount)}
-                  </div>
-                </div>
-                {canEstimate ? (
-                  <form action={updateSubcontractorCost} className="flex items-center gap-2">
-                    <input type="hidden" name="id" value={s.id} />
-                    <input type="hidden" name="jobId" value={job.id} />
-                    <select name="status" defaultValue={s.status} className="border rounded-md px-2 py-1 text-xs">
-                      <option value="COMMITTED">Committed</option>
-                      <option value="INVOICED">Invoiced</option>
-                      <option value="PAID">Paid</option>
-                    </select>
-                    <input
-                      name="actualAmount"
-                      type="number"
-                      step="any"
-                      min="0"
-                      defaultValue={s.actualAmount}
-                      className="w-24 border rounded-md px-2 py-1 text-xs"
-                    />
-                    <button type="submit" className="bg-slate-900 text-white text-xs px-2 py-1 rounded-md hover:bg-slate-700">
-                      Save
-                    </button>
-                  </form>
-                ) : (
-                  <span className="text-xs px-2 py-1 rounded-full bg-slate-100 text-slate-700">{s.status}</span>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-        {canEstimate && (
-          <details className="text-sm">
-            <summary className="cursor-pointer text-slate-500 hover:text-slate-700">+ Add subcontractor cost</summary>
-            <form action={createSubcontractorCost} className="mt-2 space-y-3 bg-white border rounded-lg p-4">
-              <input type="hidden" name="jobId" value={job.id} />
-              <div>
-                <label className="block text-xs font-medium mb-1">Vendor *</label>
-                <input name="vendor" required className="w-full border rounded-md px-3 py-2 text-sm" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium mb-1">Description</label>
-                <input name="description" className="w-full border rounded-md px-3 py-2 text-sm" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium mb-1">Committed amount *</label>
-                <input name="committedAmount" type="number" step="any" min="0" required className="w-full border rounded-md px-3 py-2 text-sm" />
-              </div>
-              <button type="submit" className="bg-slate-900 text-white text-sm px-3 py-2 rounded-md hover:bg-slate-700">
-                Add
-              </button>
-            </form>
-          </details>
-        )}
       </div>
 
       <div className="max-w-2xl bg-white border rounded-lg p-6 space-y-4">

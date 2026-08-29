@@ -31,13 +31,14 @@ export default async function MaterialsPage({
   const session = await requireSession();
   const prisma = scopedPrisma(session.companyId);
   const { id } = await params;
-  const [job, requests] = await Promise.all([
+  const [job, requests, vendors] = await Promise.all([
     prisma.job.findFirst({ where: { id } }),
     prisma.materialRequest.findMany({
       where: { jobId: id },
       orderBy: { createdAt: "desc" },
-      include: { requestedBy: true },
+      include: { requestedBy: true, vendor: true },
     }),
+    prisma.vendor.findMany({ orderBy: { name: "asc" } }),
   ]);
   if (!job) notFound();
 
@@ -74,7 +75,7 @@ export default async function MaterialsPage({
                   </div>
                   <div className="text-xs text-slate-500">
                     {r.requestedBy ? `Requested by ${r.requestedBy.name}` : "Requested"}
-                    {r.vendor ? ` · ${r.vendor}` : ""}
+                    {r.vendor ? ` · ${r.vendor.name}` : ""}
                     {r.poNumber ? ` · PO ${r.poNumber}` : ""}
                     {r.totalCost ? ` · ${formatMoney(r.totalCost)}` : ""}
                     {r.expectedDeliveryDate ? ` · expected ${formatDate(r.expectedDeliveryDate)}` : ""}
@@ -99,7 +100,18 @@ export default async function MaterialsPage({
                   </div>
                   <div>
                     <label className="block mb-1">Vendor</label>
-                    <input name="vendor" defaultValue={r.vendor ?? ""} className="border rounded-md px-2 py-1 w-28" />
+                    <select name="vendorId" defaultValue={r.vendorId ?? ""} className="border rounded-md px-2 py-1 w-28">
+                      <option value="">— New (below) —</option>
+                      {vendors.map((v) => (
+                        <option key={v.id} value={v.id}>
+                          {v.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block mb-1">New vendor</label>
+                    <input name="newVendorName" className="border rounded-md px-2 py-1 w-24" placeholder="Only if new" />
                   </div>
                   <div>
                     <label className="block mb-1">PO #</label>
