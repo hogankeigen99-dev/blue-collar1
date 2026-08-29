@@ -99,6 +99,7 @@ export async function awardProject(formData: FormData) {
       address: str(formData, "location"),
       customerId,
       contractValue: num(formData, "contractValue"),
+      projectType: str(formData, "projectType"),
       pmUserId: str(formData, "pmUserId"),
       foremanWorkerId,
       targetStartDate,

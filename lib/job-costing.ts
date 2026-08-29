@@ -25,6 +25,10 @@ export type JobCosting = {
   projectedFinalCost: number;
   projectedGrossProfit: number;
   projectedMarginPct: number | null;
+  /** Item 6 — the PM forecast: total labor hours/cost at completion across
+   * every cost code, at each line's current actual burn rate. */
+  projectedLaborHours: number;
+  projectedLaborCost: number;
 };
 
 export async function getJobCosting(companyId: string, jobId: string): Promise<JobCosting> {
@@ -53,16 +57,14 @@ export async function getJobCosting(companyId: string, jobId: string): Promise<J
 
   let actualLaborCost = 0;
   let projectedLaborCost = 0;
+  let projectedLaborHours = 0;
   for (const jcc of jobCostCodes) {
     const progress = computeProgress(jcc.estimatedQty, jcc.estimatedHours, jcc.entries);
     for (const e of jcc.entries) {
       actualLaborCost += e.hours * (e.enteredBy?.laborRate ?? jobAverageRate);
     }
-    const projectedHours =
-      progress.actualQty > 0 && progress.actualRate !== null
-        ? progress.actualRate * jcc.estimatedQty
-        : jcc.estimatedHours;
-    projectedLaborCost += projectedHours * jobAverageRate;
+    projectedLaborHours += progress.projectedHours;
+    projectedLaborCost += progress.projectedHours * jobAverageRate;
   }
 
   // --- Material: committed once a PO exists, actual once received ---
@@ -157,5 +159,7 @@ export async function getJobCosting(companyId: string, jobId: string): Promise<J
     projectedFinalCost,
     projectedGrossProfit,
     projectedMarginPct,
+    projectedLaborHours,
+    projectedLaborCost,
   };
 }

@@ -129,10 +129,40 @@ labor/materials/change-orders/exceptions with no duplicate entry, and that
     installed per cost code per day. No payroll-cycle lag: actual hrs/unit,
     variance vs. the estimate, and an on-pace/watch/over-budget status
     recompute immediately on save.
-  - **Historical productivity** (`/cost-codes`) — actual hrs/unit aggregated
-    across every job that has ever used a cost code, so estimators can pull
-    the company's own actuals instead of bidding from gut feel or generic
-    unit-cost books.
+  - **Estimate ↔ actual closed loop** — the company's own completed-job
+    history feeds back into the next estimate instead of living only in a
+    read-only report:
+    - **Historical productivity, live at estimate time**: adding a budget
+      line (`/jobs/[id]/cost-codes/new`) or a cost-code row on the Award
+      form shows that code's **company-wide rate** (all-time weighted
+      hrs/unit), its **recent-job rate** (last 3 completed jobs), and a
+      **recommended rate** (prefers the recent-job rate once 2+ jobs exist,
+      falls back to the company rate otherwise) — with a one-click "Use
+      recommended" that fills the estimated hours from the entered quantity.
+    - **Filterable history** (`/cost-codes`): the same historical table,
+      filterable by project type, crew (foreman), quantity range, and
+      completion-date range — so "what does this crew actually run on a
+      job this size" is a filter, not a spreadsheet pivot.
+    - **At-completion benchmarks**: the moment a job's stage is set to
+      Complete, its finished cost-code lines (estimate vs. actual qty/hours/
+      rate/variance) are snapshotted into a `CostCodeBenchmark` record —
+      automatically, the same save that moves the stage, no separate
+      "record this job" step. Deliberately a point-in-time table rather
+      than aggregating live, in-progress `ProductionEntry` rows, so a job
+      that's only 20% done can't dilute the historical rate estimators
+      actually bid from.
+    - **Estimating accuracy dashboard** (`/cost-codes`): per cost code,
+      average estimated vs. actual rate across completed jobs, average
+      variance, and a verdict —
+      *consistently underestimated/overestimated*, *accurate*, or
+      *inconsistent* — so a PM/estimator can see exactly which cost codes
+      the company's bids are systematically wrong on, not just that margin
+      came in soft somewhere.
+    - **PM forecast**: "Projected hrs"/"Projected labor cost" on the job
+      Command Center and its labor-productivity table are the honest
+      at-completion forecast — actual rate × estimated quantity once work
+      has started, the estimate itself before that — not just a running
+      total of hours logged so far.
 
 - **Job Command Center** (`/jobs/[id]`): every job's operational home — see
   "Primary use case" above for the full field list (project number, contract
@@ -375,8 +405,12 @@ Covers the small-crew-project workflow end to end: the award → setup →
 schedule → mobilize → daily update → job cost → exception detection →
 change order → materials → completion → billing ready → invoice → closeout
 lifecycle; that one daily report drives labor/materials/change-orders/
-exceptions automatically with no duplicate entry; and that `/today` answers
-its six questions for a real exception. Tests are safe to re-run without
+exceptions automatically with no duplicate entry; that `/today` answers its
+six questions for a real exception; and the estimate ↔ actual closed loop —
+historical rates rendering live on the Award and Add Budget Line forms, the
+`/cost-codes` filters actually filtering, the estimating-accuracy verdict
+matching the seeded history, and a job's stage save into Complete recording
+a new benchmark with no separate step. Tests are safe to re-run without
 resetting between runs (dates are generated fresh each run) but are most
 meaningful right after a reset, against the seed data they're written for.
 
@@ -434,7 +468,10 @@ app/                          Next.js App Router pages — dashboard, alerts, jo
 proxy.ts                      Route protection — redirects signed-out requests to /login
 lib/prisma.ts                 Shared Prisma client
 lib/actions.ts                 Server Actions for jobs/workers/customers
-lib/productivity.ts            Variance/status calc + historical productivity query
+lib/productivity.ts            Per-cost-code variance/status calc + at-completion projected hours
+lib/productivity-benchmarks.ts Estimate <-> actual closed loop: records CostCodeBenchmark snapshots
+                                on job completion; company/recent/recommended rates; filterable
+                                historical productivity; company-wide estimating-accuracy verdicts
 lib/schedule.ts                Week/date helpers + per-job color coding for the schedule grid
 lib/schedule-actions.ts        Server Action to assign a worker's day (or a multi-day range),
                                 warning on unavailability/displacement without blocking
@@ -467,7 +504,9 @@ app/today/                      PM Daily Command
 prisma/schema.prisma  Data model
 prisma/seed.ts        Sample data, demo login accounts, and two small-crew-project demo scenarios
                        (Sunrise Duplex live mid-project, Cedar Court closed out) plus a full
-                       job-costing/field-ops demo scenario (Riverside Phase 2)
+                       job-costing/field-ops demo scenario (Riverside Phase 2) and a handful of
+                       minimal completed-job history records seeding the estimating-accuracy
+                       dashboard with a clean "consistently underestimated" example
 tests/e2e/             Playwright E2E suite for the small-crew-project workflow (npm run test:e2e)
 playwright.config.ts   E2E test runner config
 railway.json          Railway build/deploy config

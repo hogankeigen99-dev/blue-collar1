@@ -34,6 +34,10 @@ export type ProjectHealth = {
   laborHoursVariancePct: number | null;
   estimatedLaborCost: number;
   actualLaborCost: number;
+  // The PM forecast (item 6): what labor lands at if the job finishes at
+  // today's actual burn rate, not just what's been spent so far.
+  projectedLaborHours: number;
+  projectedLaborCost: number;
 
   // Cost categories
   materialBudget: number;
@@ -139,6 +143,8 @@ export async function getProjectHealth(companyId: string, jobId: string): Promis
     laborHoursVariancePct,
     estimatedLaborCost: laborCategory.estimated,
     actualLaborCost: laborCategory.actual,
+    projectedLaborHours: costing.projectedLaborHours,
+    projectedLaborCost: costing.projectedLaborCost,
 
     materialBudget: materialCategory.estimated,
     materialActual: materialCategory.actual,

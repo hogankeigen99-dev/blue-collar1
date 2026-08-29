@@ -2,7 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { scopedPrisma } from "@/lib/tenant";
 import { addJobCostCode } from "@/lib/materials-actions";
+import { getAllCostCodeRatesMap } from "@/lib/productivity-benchmarks";
 import { requirePageRole } from "@/lib/session";
+import BudgetLineFields from "./budget-line-fields";
 
 export default async function NewJobCostCodePage({
   params,
@@ -12,9 +14,10 @@ export default async function NewJobCostCodePage({
   const session = await requirePageRole("ADMIN", "PM");
   const prisma = scopedPrisma(session.companyId);
   const { id } = await params;
-  const [job, costCodes] = await Promise.all([
+  const [job, costCodes, rates] = await Promise.all([
     prisma.job.findFirst({ where: { id } }),
     prisma.costCode.findMany({ orderBy: { code: "asc" } }),
+    getAllCostCodeRatesMap(session.companyId),
   ]);
 
   if (!job) notFound();
@@ -44,40 +47,10 @@ export default async function NewJobCostCodePage({
         <form action={addJobCostCode} className="space-y-4 bg-white border rounded-lg p-6">
           <input type="hidden" name="jobId" value={job.id} />
 
-          <div>
-            <label className="block text-sm font-medium mb-1">Cost code *</label>
-            <select name="costCodeId" required className="w-full border rounded-md px-3 py-2 text-sm">
-              {costCodes.map((cc) => (
-                <option key={cc.id} value={cc.id}>
-                  {cc.code} — {cc.description} ({cc.unit})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Estimated quantity *</label>
-            <input
-              name="estimatedQty"
-              type="number"
-              step="any"
-              min="0"
-              required
-              className="w-full border rounded-md px-3 py-2 text-sm"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Estimated hours *</label>
-            <input
-              name="estimatedHours"
-              type="number"
-              step="any"
-              min="0"
-              required
-              className="w-full border rounded-md px-3 py-2 text-sm"
-            />
-          </div>
+          <BudgetLineFields
+            costCodes={costCodes.map((cc) => ({ id: cc.id, code: cc.code, description: cc.description, unit: cc.unit }))}
+            rates={rates}
+          />
 
           <button
             type="submit"

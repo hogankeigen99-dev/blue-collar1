@@ -1,19 +1,24 @@
+import Link from "next/link";
 import { scopedPrisma } from "@/lib/tenant";
 import { awardProject } from "@/lib/award-actions";
+import { getAllCostCodeRatesMap } from "@/lib/productivity-benchmarks";
 import { requirePageRole } from "@/lib/session";
 import AwardRepeatableSections from "./award-form";
 
 export default async function AwardProjectPage() {
   const session = await requirePageRole("ADMIN", "PM");
   const prisma = scopedPrisma(session.companyId);
-  const [customers, workers, users, costCodes, equipment, divisions] = await Promise.all([
+  const [customers, workers, users, costCodes, equipment, divisions, projectTypeRows, rates] = await Promise.all([
     prisma.customer.findMany({ orderBy: { name: "asc" } }),
     prisma.worker.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
     prisma.user.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
     prisma.costCode.findMany({ orderBy: { code: "asc" } }),
     prisma.equipment.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
     prisma.division.findMany({ orderBy: { name: "asc" } }),
+    prisma.job.findMany({ where: { projectType: { not: null } }, select: { projectType: true }, distinct: ["projectType"] }),
+    getAllCostCodeRatesMap(session.companyId),
   ]);
+  const projectTypes = projectTypeRows.map((j) => j.projectType!).sort();
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -85,6 +90,27 @@ export default async function AwardProjectPage() {
                   </option>
                 ))}
               </select>
+            </div>
+            <div className="col-span-2">
+              <label className="block text-sm font-medium mb-1">Project type</label>
+              <input
+                name="projectType"
+                list="projectTypeOptions"
+                placeholder="e.g. Residential slab, Commercial TI, Site work"
+                className="w-full border rounded-md px-3 py-2 text-sm"
+              />
+              <datalist id="projectTypeOptions">
+                {projectTypes.map((t) => (
+                  <option key={t} value={t} />
+                ))}
+              </datalist>
+              <p className="text-xs text-slate-500 mt-1">
+                Groups this job into the right comparison once it&apos;s complete — see{" "}
+                <Link href="/cost-codes" className="text-blue-600 hover:underline">
+                  historical productivity
+                </Link>
+                .
+              </p>
             </div>
           </div>
         </div>
@@ -159,6 +185,7 @@ export default async function AwardProjectPage() {
         <AwardRepeatableSections
           costCodes={costCodes.map((cc) => ({ id: cc.id, code: cc.code, description: cc.description, unit: cc.unit }))}
           equipmentList={equipment.map((e) => ({ id: e.id, name: e.name, type: e.type }))}
+          rates={rates}
         />
 
         <button type="submit" className="bg-slate-900 text-white text-sm px-5 py-2.5 rounded-md hover:bg-slate-700">

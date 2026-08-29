@@ -64,6 +64,23 @@ export default async function EditCommandCenterPage({
           </select>
         </div>
 
+        <div>
+          <label className="block text-sm font-medium mb-1">Project type</label>
+          <input
+            name="projectType"
+            defaultValue={job.projectType ?? ""}
+            placeholder="e.g. Residential slab, Commercial TI, Site work"
+            className="w-full border rounded-md px-3 py-2 text-sm"
+          />
+          <p className="text-xs text-slate-500 mt-1">
+            Used to filter this job&apos;s cost codes into the right{" "}
+            <Link href="/cost-codes" className="text-blue-600 hover:underline">
+              historical productivity
+            </Link>{" "}
+            comparison once it&apos;s complete.
+          </p>
+        </div>
+
         {divisions.length > 0 && (
           <div>
             <label className="block text-sm font-medium mb-1">Division</label>

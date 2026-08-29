@@ -176,6 +176,12 @@ export default async function JobDetailPage({
           />
           <Stat label="Est. labor cost" value={formatMoney(health.estimatedLaborCost)} />
           <Stat label="Actual labor cost" value={formatMoney(health.actualLaborCost)} />
+          <Stat label="Projected labor hrs" value={health.projectedLaborHours.toFixed(0)} />
+          <Stat
+            label="Projected labor cost"
+            value={formatMoney(health.projectedLaborCost)}
+            danger={health.projectedLaborCost > health.estimatedLaborCost * 1.15}
+          />
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 text-sm border-t pt-4">
@@ -620,6 +626,7 @@ export default async function JobDetailPage({
                   <th className="px-4 py-3 font-medium text-right">Actual qty</th>
                   <th className="px-4 py-3 font-medium text-right">Est hrs</th>
                   <th className="px-4 py-3 font-medium text-right">Actual hrs</th>
+                  <th className="px-4 py-3 font-medium text-right">Projected hrs</th>
                   <th className="px-4 py-3 font-medium text-right">Est rate</th>
                   <th className="px-4 py-3 font-medium text-right">Actual rate</th>
                   <th className="px-4 py-3 font-medium text-right">Variance</th>
@@ -641,6 +648,7 @@ export default async function JobDetailPage({
                       <td className="px-4 py-3 text-right">{progress.actualQty || "—"}</td>
                       <td className="px-4 py-3 text-right">{jcc.estimatedHours}</td>
                       <td className="px-4 py-3 text-right">{progress.actualHours || "—"}</td>
+                      <td className="px-4 py-3 text-right">{progress.projectedHours.toFixed(1)}</td>
                       <td className="px-4 py-3 text-right">
                         {progress.estimatedRate !== null ? progress.estimatedRate.toFixed(2) : "—"}
                       </td>

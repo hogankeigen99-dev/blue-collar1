@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import type { CostCodeRates } from "@/lib/productivity-benchmarks";
 
 type CostCodeOption = { id: string; code: string; description: string; unit: string };
 type EquipmentOption = { id: string; name: string; type: string | null };
+type CostCodeRow = { id: string; costCodeId: string; qty: string; hours: string };
 
 function newId() {
   return Math.random().toString(36).slice(2);
@@ -17,14 +19,20 @@ function newId() {
 export default function AwardRepeatableSections({
   costCodes,
   equipmentList,
+  rates,
 }: {
   costCodes: CostCodeOption[];
   equipmentList: EquipmentOption[];
+  rates: Record<string, CostCodeRates>;
 }) {
-  const [costCodeRows, setCostCodeRows] = useState<string[]>([newId()]);
+  const [costCodeRows, setCostCodeRows] = useState<CostCodeRow[]>([{ id: newId(), costCodeId: "", qty: "", hours: "" }]);
   const [materialRows, setMaterialRows] = useState<string[]>([]);
   const [equipmentRows, setEquipmentRows] = useState<string[]>([]);
   const [subRows, setSubRows] = useState<string[]>([]);
+
+  function updateRow(id: string, patch: Partial<CostCodeRow>) {
+    setCostCodeRows((rows) => rows.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  }
 
   return (
     <div className="space-y-6">
@@ -34,7 +42,7 @@ export default function AwardRepeatableSections({
           <h3 className="text-sm font-semibold">Cost codes &amp; labor budget</h3>
           <button
             type="button"
-            onClick={() => setCostCodeRows((r) => [...r, newId()])}
+            onClick={() => setCostCodeRows((r) => [...r, { id: newId(), costCodeId: "", qty: "", hours: "" }])}
             className="text-xs text-blue-600 hover:underline"
           >
             + Add cost code
@@ -42,40 +50,80 @@ export default function AwardRepeatableSections({
         </div>
         <div className="space-y-2">
           {costCodeRows.length === 0 && <p className="text-xs text-slate-500">No cost codes added.</p>}
-          {costCodeRows.map((id) => (
-            <div key={id} className="flex gap-2 items-center">
-              <select name="costCodeId" className="flex-1 border rounded-md px-2 py-1.5 text-sm">
-                <option value="">— Cost code —</option>
-                {costCodes.map((cc) => (
-                  <option key={cc.id} value={cc.id}>
-                    {cc.code} — {cc.description} ({cc.unit})
-                  </option>
-                ))}
-              </select>
-              <input
-                name="costCodeQty"
-                type="number"
-                step="any"
-                placeholder="Est. qty"
-                className="w-24 border rounded-md px-2 py-1.5 text-sm"
-              />
-              <input
-                name="costCodeHours"
-                type="number"
-                step="any"
-                placeholder="Est. hrs"
-                className="w-24 border rounded-md px-2 py-1.5 text-sm"
-              />
-              <button
-                type="button"
-                onClick={() => setCostCodeRows((r) => r.filter((x) => x !== id))}
-                className="text-slate-400 hover:text-red-600 text-xs px-1"
-                aria-label="Remove row"
-              >
-                ✕
-              </button>
-            </div>
-          ))}
+          {costCodeRows.map((row) => {
+            const selected = costCodes.find((c) => c.id === row.costCodeId);
+            const r = rates[row.costCodeId];
+            return (
+              <div key={row.id} className="space-y-1.5">
+                <div className="flex gap-2 items-center">
+                  <select
+                    name="costCodeId"
+                    value={row.costCodeId}
+                    onChange={(e) => updateRow(row.id, { costCodeId: e.target.value })}
+                    className="flex-1 border rounded-md px-2 py-1.5 text-sm"
+                  >
+                    <option value="">— Cost code —</option>
+                    {costCodes.map((cc) => (
+                      <option key={cc.id} value={cc.id}>
+                        {cc.code} — {cc.description} ({cc.unit})
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    name="costCodeQty"
+                    type="number"
+                    step="any"
+                    value={row.qty}
+                    onChange={(e) => updateRow(row.id, { qty: e.target.value })}
+                    placeholder="Est. qty"
+                    className="w-24 border rounded-md px-2 py-1.5 text-sm"
+                  />
+                  <input
+                    name="costCodeHours"
+                    type="number"
+                    step="any"
+                    value={row.hours}
+                    onChange={(e) => updateRow(row.id, { hours: e.target.value })}
+                    placeholder="Est. hrs"
+                    className="w-24 border rounded-md px-2 py-1.5 text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setCostCodeRows((rows) => rows.filter((x) => x.id !== row.id))}
+                    className="text-slate-400 hover:text-red-600 text-xs px-1"
+                    aria-label="Remove row"
+                  >
+                    ✕
+                  </button>
+                </div>
+                {r?.recommendedRate != null && (
+                  <div className="text-xs text-slate-500 pl-1 flex items-center gap-2 flex-wrap">
+                    <span>
+                      Recommended{" "}
+                      <span className="font-medium text-slate-700">
+                        {r.recommendedRate.toFixed(2)} hrs/{selected?.unit}
+                      </span>{" "}
+                      ({r.recommendedSource === "recent" ? "recent jobs" : "company history"}) &middot; company avg{" "}
+                      {r.companyRate !== null ? `${r.companyRate.toFixed(2)}` : "—"}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={!row.qty}
+                      onClick={() => {
+                        const qty = Number(row.qty);
+                        if (Number.isFinite(qty) && qty > 0) {
+                          updateRow(row.id, { hours: (r.recommendedRate! * qty).toFixed(1) });
+                        }
+                      }}
+                      className="text-blue-600 hover:underline disabled:text-slate-300 disabled:no-underline"
+                    >
+                      Use recommended &rarr;
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 

@@ -158,6 +158,7 @@ model Worker {
   unavailability      WorkerUnavailability[]
   checklistItemsDone  JobChecklistItem[]
   documentsUploaded   Document[]
+  benchmarksAsForeman CostCodeBenchmark[]    @relation("CostCodeBenchmarkForeman")
 
   @@index([companyId])
 }
@@ -292,6 +293,10 @@ model Job {
   stage                ProjectStage @default(PRECON)
   punchListComplete    Boolean      @default(false)
   requiredDocsComplete Boolean      @default(false)
+  // Free-text project classification ("Residential slab", "Commercial TI",
+  // "Site work", ...) — lets the estimate/actual history be filtered by the
+  // kind of work, distinct from Division (org/business-line grouping).
+  projectType          String?
 
   assignments          JobAssignment[]
   costCodes            JobCostCode[]
@@ -305,6 +310,7 @@ model Job {
   invoices             Invoice[]
   checklistItems       JobChecklistItem[]
   documents            Document[]
+  costCodeBenchmarks   CostCodeBenchmark[]
 
   @@unique([companyId, jobNumber])
   @@index([companyId])
@@ -341,15 +347,16 @@ model JobAssignment {
 // (actual hrs/unit) is derived from ProductionEntry rows across every job
 // that has ever used this code, not stored redundantly here.
 model CostCode {
-  id           String        @id @default(cuid())
-  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  id           String              @id @default(cuid())
+  company      Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId    String
   code         String
   description  String
   unit         UnitOfMeasure
   glCode       String? // maps this cost code to the accounting system's GL/cost code for export
-  createdAt    DateTime      @default(now())
+  createdAt    DateTime            @default(now())
   jobCostCodes JobCostCode[]
+  benchmarks   CostCodeBenchmark[]
 
   @@unique([companyId, code])
   @@index([companyId])
@@ -384,6 +391,38 @@ model JobCostCode {
   entries        ProductionEntry[]
 
   @@unique([jobId, costCodeId])
+}
+
+// A closed-loop estimate-vs-actual record, snapshotted once (per job+cost
+// code) the moment a job reaches COMPLETE — lib/productivity-benchmarks.ts's
+// recordBenchmarksForCompletedJob(), triggered alongside the stage-change
+// automation in lib/command-center-actions.ts. Deliberately a separate,
+// point-in-time table rather than re-aggregating live ProductionEntry rows
+// on every read: an in-progress job's partial, still-moving numbers
+// shouldn't dilute the historical rate estimators actually bid from: only
+// finished, reconciled cost-code lines count as a benchmark. Re-running
+// completion (e.g. a PM re-saving the command-center form) upserts the same
+// row rather than duplicating it.
+model CostCodeBenchmark {
+  id              String   @id @default(cuid())
+  costCode        CostCode @relation(fields: [costCodeId], references: [id])
+  costCodeId      String
+  job             Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  jobId           String
+  projectType     String? // denormalized from Job.projectType at snapshot time, for filtering
+  foreman         Worker?  @relation("CostCodeBenchmarkForeman", fields: [foremanWorkerId], references: [id])
+  foremanWorkerId String?
+  estimatedQty    Float
+  estimatedHours  Float
+  actualQty       Float
+  actualHours     Float
+  estimatedRate   Float? // hrs/unit bid
+  actualRate      Float? // hrs/unit actually run
+  variancePct     Float? // (actualRate - estimatedRate) / estimatedRate
+  recordedAt      DateTime @default(now())
+
+  @@unique([jobId, costCodeId])
+  @@index([costCodeId])
 }
 
 // A single day's field-reported labor and quantity-installed against a

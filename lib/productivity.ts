@@ -1,5 +1,3 @@
-import { scopedPrisma } from "@/lib/tenant";
-
 export type ProductivityStatus = "not_started" | "on_pace" | "watch" | "over_budget";
 
 export type JobCostCodeProgress = {
@@ -9,6 +7,11 @@ export type JobCostCodeProgress = {
   actualRate: number | null;
   hoursVariancePct: number | null;
   status: ProductivityStatus;
+  /** Item 6 — the PM forecast: hours this cost code will land at if it
+   * finishes the remaining quantity at today's actual rate. Once work has
+   * started, this is actualRate × estimatedQty (the honest projection);
+   * before that, it's just the estimate, since there's no burn rate yet. */
+  projectedHours: number;
 };
 
 /** Variance thresholds on actual-vs-estimated hrs/unit before a code is flagged. */
@@ -37,7 +40,9 @@ export function computeProgress(
     else status = "over_budget";
   }
 
-  return { actualHours, actualQty, estimatedRate, actualRate, hoursVariancePct, status };
+  const projectedHours = actualQty > 0 && actualRate !== null ? actualRate * estimatedQty : estimatedHours;
+
+  return { actualHours, actualQty, estimatedRate, actualRate, hoursVariancePct, status, projectedHours };
 }
 
 export const PRODUCTIVITY_STATUS_LABEL: Record<ProductivityStatus, string> = {
@@ -53,49 +58,3 @@ export const PRODUCTIVITY_STATUS_CLASSES: Record<ProductivityStatus, string> = {
   watch: "bg-amber-100 text-amber-700",
   over_budget: "bg-red-100 text-red-700",
 };
-
-export type HistoricalProductivity = {
-  costCodeId: string;
-  code: string;
-  description: string;
-  unit: string;
-  totalHours: number;
-  totalQty: number;
-  avgRate: number | null;
-  jobCount: number;
-};
-
-/** Aggregates actual hrs/unit for every cost code across every job that has logged production against it — the historical estimating asset. */
-export async function getHistoricalProductivity(companyId: string): Promise<HistoricalProductivity[]> {
-  const prisma = scopedPrisma(companyId);
-  const costCodes = await prisma.costCode.findMany({
-    orderBy: { code: "asc" },
-    include: {
-      jobCostCodes: {
-        include: { entries: true },
-      },
-    },
-  });
-
-  return costCodes.map((cc) => {
-    const jobsWithEntries = cc.jobCostCodes.filter((jcc) => jcc.entries.length > 0);
-    const totalHours = jobsWithEntries.reduce(
-      (sum, jcc) => sum + jcc.entries.reduce((s, e) => s + e.hours, 0),
-      0
-    );
-    const totalQty = jobsWithEntries.reduce(
-      (sum, jcc) => sum + jcc.entries.reduce((s, e) => s + e.quantity, 0),
-      0
-    );
-    return {
-      costCodeId: cc.id,
-      code: cc.code,
-      description: cc.description,
-      unit: cc.unit,
-      totalHours,
-      totalQty,
-      avgRate: totalQty > 0 ? totalHours / totalQty : null,
-      jobCount: jobsWithEntries.length,
-    };
-  });
-}

@@ -145,12 +145,20 @@ async function main() {
       unit: "CY",
     },
   });
-  await prisma.costCode.create({
+  const electricalRoughIn = await prisma.costCode.create({
     data: {
       companyId: company.id,
       code: "26 05 00",
       description: "Electrical rough-in",
       unit: "HR",
+    },
+  });
+  const rebarPlacement = await prisma.costCode.create({
+    data: {
+      companyId: company.id,
+      code: "03 20 00",
+      description: "Reinforcing steel placement",
+      unit: "TON",
     },
   });
 
@@ -168,6 +176,7 @@ async function main() {
       description: "Slab on grade for the parking structure foundation",
       address: "8800 Harbor View Dr",
       status: "COMPLETED",
+      projectType: "Foundation pour",
       customerId: harborView.id,
       assignments: { create: [{ workerId: frank.id }, { workerId: miguel.id }] },
       contractValue: 310000,
@@ -217,6 +226,24 @@ async function main() {
       amount: 310000,
       date: new Date("2026-07-16"),
       status: "PAID",
+    },
+  });
+  // Estimate/actual closed loop: the at-completion benchmark a real
+  // COMPLETE transition (lib/command-center-actions.ts) would have
+  // snapshotted — this job came in almost exactly on the bid rate.
+  await prisma.costCodeBenchmark.create({
+    data: {
+      jobId: harborFoundation.id,
+      costCodeId: concreteSlab.id,
+      projectType: "Foundation pour",
+      foremanWorkerId: frank.id,
+      estimatedQty: 200,
+      estimatedHours: 170,
+      actualQty: 205,
+      actualHours: 174,
+      estimatedRate: 170 / 200,
+      actualRate: 174 / 205,
+      variancePct: (174 / 205 - 170 / 200) / (170 / 200),
     },
   });
 
@@ -762,6 +789,7 @@ async function main() {
       description: "Excavation and slab-on-grade for a backyard patio and connecting walkway",
       address: "77 Cedar Court",
       status: "COMPLETED",
+      projectType: "Residential patio & walkway",
       customerId: ferrisResidence.id,
       assignments: { create: [{ workerId: tasha.id }, { workerId: reggie.id }] },
       contractValue: 28500,
@@ -964,6 +992,100 @@ async function main() {
       status: "PAID",
     },
   });
+
+  // Cedar Court is COMPLETE, so its finished cost-code lines join the
+  // estimating history — same automation that fires from the app when a PM
+  // moves a job's stage to COMPLETE (see recordBenchmarksForCompletedJob).
+  await prisma.costCodeBenchmark.create({
+    data: {
+      jobId: cedarCourt.id,
+      costCodeId: excavation.id,
+      projectType: "Residential patio & walkway",
+      foremanWorkerId: tasha.id,
+      estimatedQty: 20,
+      estimatedHours: 14,
+      actualQty: 20,
+      actualHours: 13,
+      estimatedRate: 14 / 20,
+      actualRate: 13 / 20,
+      variancePct: (13 / 20 - 14 / 20) / (14 / 20),
+    },
+  });
+  await prisma.costCodeBenchmark.create({
+    data: {
+      jobId: cedarCourt.id,
+      costCodeId: concreteSlab.id,
+      projectType: "Residential patio & walkway",
+      foremanWorkerId: tasha.id,
+      estimatedQty: 35,
+      estimatedHours: 30,
+      actualQty: 35,
+      actualHours: 34,
+      estimatedRate: 30 / 35,
+      actualRate: 34 / 35,
+      variancePct: (34 / 35 - 30 / 35) / (30 / 35),
+    },
+  });
+
+  // Three more completed jobs on the rebar-placement cost code, giving the
+  // estimating-accuracy dashboard a clean "consistently underestimated"
+  // signal (~19% avg variance, same direction every time) — the concrete
+  // slab data above is close enough to the estimate that alone it wouldn't
+  // clearly demonstrate that verdict. These are minimal historical anchors:
+  // no daily reports, just the cost-code line, one production entry, and
+  // the resulting benchmark, as if entered at project close-out.
+  const rebarHistoryJobs: { title: string; jobNumber: string; estQty: number; estHours: number; actQty: number; actHours: number }[] = [
+    { title: "Cove Street Duplex — Rebar Package", jobNumber: `${SEED_YEAR}-007`, estQty: 8, estHours: 32, actQty: 8, actHours: 38 },
+    { title: "Birchwood Row — Rebar Package", jobNumber: `${SEED_YEAR}-008`, estQty: 10, estHours: 40, actQty: 10, actHours: 47 },
+    { title: "Elm Terrace — Rebar Package", jobNumber: `${SEED_YEAR}-009`, estQty: 6, estHours: 24, actQty: 6, actHours: 29 },
+  ];
+  for (const rh of rebarHistoryJobs) {
+    const historicJob = await prisma.job.create({
+      data: {
+        companyId: company.id,
+        customerId: harborView.id,
+        jobNumber: rh.jobNumber,
+        title: rh.title,
+        address: "Historical record — no site work tracked",
+        stage: "COMPLETE",
+        status: "COMPLETED",
+        projectType: "Foundation pour",
+        pmUserId: priya.id,
+        foremanWorkerId: frank.id,
+        contractValue: rh.actHours * 95,
+      },
+    });
+    const historicCostCode = await prisma.jobCostCode.create({
+      data: { jobId: historicJob.id, costCodeId: rebarPlacement.id, estimatedQty: rh.estQty, estimatedHours: rh.estHours },
+    });
+    await prisma.productionEntry.create({
+      data: {
+        jobCostCodeId: historicCostCode.id,
+        date: new Date(`${SEED_YEAR - 1}-09-15`),
+        hours: rh.actHours,
+        quantity: rh.actQty,
+        crewSize: 2,
+        enteredById: frank.id,
+      },
+    });
+    const estRate = rh.estHours / rh.estQty;
+    const actRate = rh.actHours / rh.actQty;
+    await prisma.costCodeBenchmark.create({
+      data: {
+        jobId: historicJob.id,
+        costCodeId: rebarPlacement.id,
+        projectType: "Foundation pour",
+        foremanWorkerId: frank.id,
+        estimatedQty: rh.estQty,
+        estimatedHours: rh.estHours,
+        actualQty: rh.actQty,
+        actualHours: rh.actHours,
+        estimatedRate: estRate,
+        actualRate: actRate,
+        variancePct: (actRate - estRate) / estRate,
+      },
+    });
+  }
 
   // --- A second, unrelated company — proves cross-tenant isolation works,
   // not just that a companyId column exists. Its admin should never be able

@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/session";
 import { generateChecklistForStage } from "@/lib/checklist";
+import { recordBenchmarksForCompletedJob } from "@/lib/productivity-benchmarks";
 import { logAudit } from "@/lib/audit";
 import { dispatchWebhook } from "@/lib/webhooks";
 
@@ -30,6 +31,7 @@ export async function updateJobCommandCenter(formData: FormData) {
   const targetEnd = str(formData, "targetEndDate");
   const newStage = str(formData, "stage");
   const divisionId = str(formData, "divisionId");
+  const projectType = str(formData, "projectType");
 
   const before = await prisma.job.findFirstOrThrow({ where: { id: jobId }, select: { stage: true, contractValue: true } });
 
@@ -53,6 +55,7 @@ export async function updateJobCommandCenter(formData: FormData) {
       stage: (newStage as never) ?? undefined,
       punchListComplete: formData.get("punchListComplete") === "on",
       requiredDocsComplete: formData.get("requiredDocsComplete") === "on",
+      projectType: projectType ?? null,
     },
   });
 
@@ -77,6 +80,14 @@ export async function updateJobCommandCenter(formData: FormData) {
       detail: `${before.stage} -> ${newStage}`,
     });
     await dispatchWebhook(session.companyId, "JOB_STAGE_CHANGED", { jobId, from: before.stage, to: newStage });
+  }
+
+  // Automation: a job at COMPLETE snapshots its finished cost-code lines
+  // into the estimating history — unconditional on the resulting stage
+  // (not just the transition into it) so re-saving an already-complete job
+  // still reconciles the benchmark if its numbers changed since.
+  if (newStage === "COMPLETE") {
+    await recordBenchmarksForCompletedJob(prisma, jobId);
   }
 
   revalidatePath(`/jobs/${jobId}`);
