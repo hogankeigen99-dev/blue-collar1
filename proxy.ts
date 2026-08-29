@@ -19,5 +19,8 @@ export const config = {
   // callback route is what CREATES it (lib/sso-actions.ts, app/api/auth/sso/callback).
   // /api/cron/* is hit by a scheduler, not a signed-in browser — it
   // authenticates itself via CRON_SECRET (lib/webhook-retry.ts).
-  matcher: ["/((?!login|api/v1|api/auth/sso|api/cron|_next/static|_next/image|favicon.ico).*)"],
+  // /api/integrations/sage/callback trusts its own signed state cookie
+  // (lib/accounting/sage-state.ts) rather than depending on the admin's
+  // session surviving the external OAuth redirect back from Sage.
+  matcher: ["/((?!login|api/v1|api/auth/sso|api/cron|api/integrations/sage|_next/static|_next/image|favicon.ico).*)"],
 };

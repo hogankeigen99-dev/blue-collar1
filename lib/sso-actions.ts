@@ -4,24 +4,18 @@ import { scopedPrisma } from "@/lib/tenant";
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { cookies, headers } from "next/headers";
+import { cookies } from "next/headers";
 import { requireRole } from "@/lib/session";
 import { signValue } from "@/lib/auth";
 import { encryptSecret } from "@/lib/crypto";
 import { buildAuthorizeUrl, generatePkcePair, randomToken } from "@/lib/oidc";
 import { SSO_STATE_COOKIE, SSO_STATE_MAX_AGE_SECONDS, type SsoStatePayload } from "@/lib/sso";
 import { logAudit } from "@/lib/audit";
+import { origin } from "@/lib/origin";
 
 function str(formData: FormData, key: string): string | undefined {
   const v = formData.get(key);
   return typeof v === "string" && v.trim() !== "" ? v.trim() : undefined;
-}
-
-async function origin(): Promise<string> {
-  const h = await headers();
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  return `${proto}://${host}`;
 }
 
 export async function saveSsoConfig(formData: FormData) {

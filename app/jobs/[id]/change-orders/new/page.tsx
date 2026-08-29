@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { scopedPrisma } from "@/lib/tenant";
 import { requireSession } from "@/lib/session";
 import { createChangeOrder } from "@/lib/change-order-actions";
+import { isAiConfigured } from "@/lib/ai/client";
+import TitleDescriptionFields from "./title-description-fields";
 
 export default async function NewChangeOrderPage({
   params,
@@ -43,25 +45,12 @@ export default async function NewChangeOrderPage({
         <input type="hidden" name="jobId" value={job.id} />
         {sourceReport && <input type="hidden" name="sourceDailyReportId" value={sourceReport.id} />}
 
-        <div>
-          <label className="block text-sm font-medium mb-1">Title *</label>
-          <input
-            name="title"
-            required
-            defaultValue={sourceReport?.changeConditionNotes?.slice(0, 80) ?? ""}
-            className="w-full border rounded-md px-3 py-2 text-sm"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium mb-1">Description</label>
-          <textarea
-            name="description"
-            rows={4}
-            defaultValue={sourceReport?.changeConditionNotes ?? ""}
-            className="w-full border rounded-md px-3 py-2 text-sm"
-          />
-        </div>
+        <TitleDescriptionFields
+          jobId={job.id}
+          defaultTitle={sourceReport?.changeConditionNotes?.slice(0, 80) ?? ""}
+          defaultDescription={sourceReport?.changeConditionNotes ?? ""}
+          aiEnabled={isAiConfigured()}
+        />
 
         <div>
           <label className="block text-sm font-medium mb-1">Identified by</label>

@@ -2,6 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { scopedPrisma } from "@/lib/tenant";
 import { requireSession } from "@/lib/session";
+import { isAiConfigured } from "@/lib/ai/client";
+import AiSummaryPanel from "./ai-summary";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +41,8 @@ export default async function DailyReportsPage({
           + New report
         </Link>
       </div>
+
+      {reports.length > 0 && isAiConfigured() && <AiSummaryPanel jobId={job.id} />}
 
       {reports.length === 0 ? (
         <p className="text-slate-500 text-sm">No daily reports yet.</p>

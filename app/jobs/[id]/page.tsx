@@ -11,6 +11,10 @@ import { formatMoney, formatDate, PROJECT_STAGE_LABEL, COST_CATEGORY_LABEL } fro
 import { setJobBudget } from "@/lib/command-center-actions";
 import { createSubcontractorCost, updateSubcontractorCost } from "@/lib/subcontractor-actions";
 import { toggleChecklistItem, addChecklistItem } from "@/lib/checklist-actions";
+import { pushJobToAccountingConnector } from "@/lib/accounting/sage-export-actions";
+import { getSageConnection } from "@/lib/accounting/sage-tokens";
+import { isAiConfigured } from "@/lib/ai/client";
+import AskAiPanel from "./ask-ai";
 
 const STATUSES = ["SCHEDULED", "IN_PROGRESS", "COMPLETED", "CANCELLED"] as const;
 const BUDGET_CATEGORIES = ["LABOR", "MATERIAL", "EQUIPMENT", "SUBCONTRACTOR", "OTHER"] as const;
@@ -21,12 +25,13 @@ export default async function JobDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ imported?: string; skipped?: string }>;
+  searchParams: Promise<{ imported?: string; skipped?: string; accountingPush?: string; pushResult?: string }>;
 }) {
   const session = await requireSession();
   const prisma = scopedPrisma(session.companyId);
   const { id } = await params;
-  const { imported, skipped } = await searchParams;
+  const { imported, skipped, accountingPush, pushResult } = await searchParams;
+  const sageConnection = await getSageConnection(session.companyId);
 
   // Resolve the job (and confirm it belongs to this company) before running
   // anything else — getJobCosting/getBillingReadiness use findFirstOrThrow
@@ -90,6 +95,12 @@ export default async function JobDetailPage({
           </Link>
         )}
       </div>
+
+      {accountingPush && (
+        <div className="max-w-2xl text-sm bg-green-50 border border-green-200 text-green-800 rounded-md px-4 py-3">
+          Pushed to {accountingPush}. {pushResult}
+        </div>
+      )}
 
       {imported !== undefined && (
         <div className="max-w-2xl text-sm bg-green-50 border border-green-200 text-green-800 rounded-md px-4 py-3">
@@ -174,6 +185,14 @@ export default async function JobDetailPage({
           >
             Export to accounting (CSV)
           </a>
+        )}
+        {canEstimate && sageConnection && (
+          <form action={pushJobToAccountingConnector} className="inline">
+            <input type="hidden" name="jobId" value={job.id} />
+            <button type="submit" className="bg-white border rounded-md px-3 py-1.5 hover:bg-slate-50">
+              Push to Sage Intacct
+            </button>
+          </form>
         )}
       </div>
 
@@ -580,6 +599,8 @@ export default async function JobDetailPage({
           </details>
         )}
       </div>
+
+      {isAiConfigured() && <AskAiPanel jobId={job.id} />}
 
       {canManage && (
         <form action={removeJob}>

@@ -96,10 +96,56 @@ same-day instead of on the next payroll cycle.
   existing accounting system (QuickBooks, Sage, Foundation, etc.) via import,
   not to replace it. The export sits behind a connector abstraction
   (`lib/accounting/` — an `AccountingConnector` interface, one
-  `CsvAccountingConnector` implementation today) specifically so a future
-  direct API connector for one of those systems is a new class implementing
-  the same interface against the same `AccountingExportData`, not a rewrite
+  `CsvAccountingConnector` implementation today) specifically so a direct
+  API connector for one of those systems is a new class implementing the
+  same interface against the same `AccountingExportData`, not a rewrite
   of the export route.
+- **Sage Intacct connector** (`/settings/integrations`): a real OAuth 2.0
+  connection (`lib/accounting/sage-oauth.ts`), not a stub — an admin clicks
+  "Connect," is redirected to Sage's real authorization endpoint, and the
+  resulting per-company access/refresh tokens are stored encrypted
+  (auto-refreshed when they expire). Once connected, a job page gets a
+  "Push to Sage Intacct" action (a POST, deliberately not a GET link — it
+  has a side effect on Sage's side, so it can't be safe/idempotent the way
+  the CSV download is) that posts a journal entry via Sage's REST API.
+  **Honesty note on the object-push payload**: the OAuth endpoints
+  (`api.intacct.com/ia/api/v1/oauth2/{authorize,token}`) are verified
+  against Sage's own documentation and the full connect flow — authorize
+  redirect → callback → token exchange → encrypted storage → auto-refresh —
+  is live-tested end-to-end. The journal-entry object endpoint and its
+  field names (`lib/accounting/sage-connector.ts`) are this app's
+  best-supported reading of Sage's documented `/objects/{module}/{object}`
+  REST pattern, but developer.sage.com's exact journal-entry schema
+  couldn't be fetched to confirm from this build environment — validate a
+  test posting against your own Sage sandbox before relying on it for real
+  entries. App-level `SAGE_INTACCT_CLIENT_ID`/`SECRET` (one registration
+  for CrewSync itself, from developer.sage.com/intacct) are required before
+  any company can connect.
+- **AI features** (`lib/ai/`, Claude Sonnet 5): three real features, not
+  canned responses — every one is hidden entirely (not shown-but-broken)
+  until `ANTHROPIC_API_KEY` is set, and a direct API call without a key
+  returns a clear 503 rather than fabricating a response.
+  - **Summarize field reports** (a job's Daily Reports page): condenses the
+    last 14 daily reports into a PM-readable summary, flagging blockers,
+    safety issues, and change conditions first.
+  - **Draft change order** (New Change Order form): turns a foreman's rough
+    field notes into a professional title + description.
+  - **Ask about this job** (job detail page): a Q&A panel grounded in that
+    job's real costing, billing-readiness checks, change orders, material
+    requests, subcontractor costs, invoices, and recent daily reports — the
+    model is instructed to say so rather than guess when the data doesn't
+    answer the question, and answers only from what's in that context, not
+    general knowledge. This is deliberately the one AI surface built this
+    phase for "predict overruns / detect schedule risk / recommend crew
+    moves / identify missing billing items" — a PM can ask directly rather
+    than each needing its own bespoke, pre-baked feature; a dedicated
+    proactive-narrative version of any of those remains a natural next
+    phase. Every AI call needs a real `ANTHROPIC_API_KEY`
+    (console.anthropic.com — separate from any Claude Code login, billed to
+    your own account) — untested against a live key from this build
+    environment for the same reason as the Sage connector above (no live
+    credential), but the request/response handling, error paths, and UI
+    gating are all real and exercised.
 - **Automation engine**: stage-triggered checklists. A company-wide,
   admin-editable template (`/settings/checklist-templates`) defines what
   checklist items exist per project stage; the moment a job is created
@@ -195,6 +241,15 @@ full estimate line items are entered directly).
   deliberately doesn't cover (point-in-time recovery needs your Postgres
   provider's own continuous-WAL feature; this is the portable secondary
   copy on top of that, not a replacement for it).
+
+**Deliberately not built yet**: Autodesk Construction Cloud and
+BuildingConnected connectors — explicitly deferred (by request) in favor of
+finishing the Sage Intacct connector first. QuickBooks and Foundation stay
+at the credential-storage-scaffolding stage `/settings/integrations` has
+had since the enterprise-security phase (a form to save a client ID/secret,
+encrypted at rest, that doesn't connect to anything) — same reasoning as
+Sage before this phase: a real connector needs a real API integration
+behind it, not a form that implies one exists.
 
 ## Local development
 

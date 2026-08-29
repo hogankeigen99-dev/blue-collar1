@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { canManageEstimates } from "@/lib/auth";
-import { buildAccountingExportData, getAccountingConnector } from "@/lib/accounting";
+import { buildAccountingExportData } from "@/lib/accounting";
+import { CsvAccountingConnector } from "@/lib/accounting/csv-connector";
 
+// CSV download only — a GET route must stay safe/idempotent, so pushing to
+// a connected external system (Sage) is a separate POST action instead
+// (lib/accounting/sage-export-actions.ts) rather than another branch here.
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getSession();
   if (!session || !canManageEstimates(session.role)) {
@@ -13,7 +17,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const data = await buildAccountingExportData(session.companyId, id);
   if (!data) return new NextResponse("Not found", { status: 404 });
 
-  const connector = getAccountingConnector();
+  const connector = new CsvAccountingConnector();
   const result = await connector.export(data);
 
   return new NextResponse(result.body, {
