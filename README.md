@@ -1,9 +1,15 @@
-# CrewSync — Crew, Job & Labor Productivity Manager
+# CrewSync — Company Operating System
 
-An MVP for a self-performing GC to track jobs, crew, scheduling, customers,
-and — the core of it — real-time self-perform labor productivity: daily
-field hours and quantity logged against a job's estimate, compared back
-same-day instead of on the next payroll cycle.
+An operating system for a self-performing GC, not a collection of separate
+point-solution modules: one connected record of a project from the bid that
+won it through the field work, the cost, the billing, and what it teaches
+the next estimate — plus a company-wide layer (Command Center, Portfolio,
+Financials, Resource view) built entirely as read layers over those same
+records, never a second copy of a fact for a dashboard's sake. See
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full company
+lifecycle this is built toward, and
+[`docs/OPERATING-DATA-MODEL.md`](docs/OPERATING-DATA-MODEL.md) for exactly
+where every business fact actually lives.
 
 ## Primary use case: the 5–10 day, 1–2 crew small project
 
@@ -50,16 +56,18 @@ accounting.
   - opens a pending `ChangeOrder` from a flagged change condition, instead of
     a flag someone has to remember to act on;
   - surfaces an equipment problem as a live PM exception.
-- **The PM Daily Command** (`/today`, `lib/pm-daily-command.ts`) is the
+- **The Company Action Center** (`/today`, `lib/pm-daily-command.ts`) is the
   start-of-day view across every job: for each open exception, what it is,
   why it matters, the impact of leaving it, what to do about it, who owns
-  it, and when it's due — not just a bare alert list.
+  it, and when it's due — not just a bare alert list. (`/alerts` used to be
+  a second, thinner page over the same scan; it now redirects here instead
+  of maintaining two views of the same data.)
 - **Exceptions are computed, not manually flagged** (`lib/alerts.ts`):
   labor overruns, schedule risk, missing field reports, material risk, crew
   conflicts, unapproved change work, billing blockers, margin risk, and
   equipment issues are all derived from the same underlying field/cost
-  data — company-wide at `/alerts`, prioritized for action at `/today`, or
-  scoped to one job (`getJobAlerts`) on its Command Center.
+  data — company-wide at `/today`, or scoped to one job (`getJobAlerts`) on
+  its Command Center.
 - **Two realistic demo projects** ship in the seed data (`prisma/seed.ts`).
   "Sunrise Duplex — Foundation & Slab" is seeded mid-stream (today is day 5
   of 7) with real daily reports — a labor slip, a material shortage and its
@@ -80,7 +88,97 @@ order (field-flagged → priced → approved, contract value updates) →
 materials (auto-request → received) → completion → billing ready → invoice
 → closeout, plus dedicated coverage that one report submission drives
 labor/materials/change-orders/exceptions with no duplicate entry, and that
-`/today` answers all six PM Daily Command questions for a real exception.
+`/today` answers all six Action Center questions for a real exception.
+
+## Company Operating Core
+
+Everything below is a **read layer** over the records the workflow above
+already writes — none of it is a second place to enter the same fact.
+`docs/OPERATING-DATA-MODEL.md` is the audit that made this a rule rather
+than a hope: before any of these were built, every major business concept
+was traced to its one source of truth and everything that already reads
+it, specifically so a company-wide number and the number on a project's own
+Command Center are never two different calculations of the same thing.
+
+- **Company Command Center** (`/`, `lib/company-command.ts`) — "how is the
+  company doing right now," for ADMIN/PM: active-operations risk buckets
+  (starting soon, nearing completion, behind schedule, labor/margin/
+  material risk, equipment issues, unresolved change work), financial
+  performance (original → approved COs → current contract, budget,
+  committed/actual/projected cost, gross margin, billing-ready value,
+  invoiced-to-date, open change-order exposure), labor (estimated/actual/
+  projected hours, variance, a real productivity trend computed from the
+  same `CostCodeBenchmark` snapshots the estimate/actual loop records — not
+  a fabricated sparkline), and resources (crew utilization, equipment
+  conflicts). Every tile is `getProjectHealth()`/`getJobCosting()` summed
+  across every open job, and every tile links to where that sum came from.
+  A FOREMAN account lands on `/field` instead — this page is a leadership
+  view, not their home.
+- **Project Portfolio** (`/projects`, `lib/portfolio.ts`) — one row per
+  project, filterable by PM/foreman/project type/stage/risk, sortable, with
+  the same columns the Command Center already computes per job (schedule %,
+  production %, labor variance, projected final cost/margin, open
+  change-order value, billing status). Clicking a row opens the existing
+  job Command Center — there's no second, separate project detail page.
+- **Company Financials** (`/financials`, `lib/company-financials.ts`) — the
+  operating financial view before accounting closes the month: company
+  totals through original → approved COs → current contract → budget →
+  committed → actual → projected final cost → gross profit/margin, broken
+  down by cost category, plus which projects are losing margin, projected
+  over budget, or blocked from billing. PM/ADMIN only. Not a general-ledger
+  replacement — `/accounting`'s GL-mapped CSV export and the Sage Intacct
+  connector remain the accounting handoff.
+- **Resource Command** (`/company/resources`, `lib/resources.ts`) — who's
+  scheduled where today, who's available, where the schedule board and the
+  formal crew roster disagree (the company-wide version of the
+  `CREW_CONFLICT` check), which projects start soon and still have zero
+  crew on the roster, and where every piece of equipment currently is.
+  Aggregates the existing `ScheduleAssignment`/`JobAssignment`/
+  `WorkerUnavailability`/`EquipmentAssignment` tables — no new scheduling
+  system underneath it.
+- **Field activity** (`/field`, `lib/field-activity.ts`) — for ADMIN/PM, a
+  company-wide feed of recent daily reports with blockers/material-needs/
+  equipment-issues/change-conditions flagged, filterable by job, so field
+  reality doesn't require opening every project to see. **For a signed-in
+  FOREMAN, this same route is their home**: their own assigned project(s)
+  today, today's scheduled crew, the cost-code work plan with live
+  estimated-vs-actual, and one-tap links to the daily update/materials/
+  change orders — resolved from a real link between their login and their
+  crew record (`Worker.userId`, added this phase — `User` and `Worker` were
+  previously unconnected, so this is genuine new plumbing, not a new
+  abstraction), not a guess or a generic list.
+- **Global search** (`/search`, `lib/search.ts`) — one search box (in the
+  nav for ADMIN/PM) across projects, project numbers, customers, workers,
+  cost codes, change orders, material requests, equipment, and document
+  titles. Plain case-insensitive `contains` queries against existing
+  tables — no external search infrastructure.
+- **Navigation is organized around how the company works, not the data
+  model** — Command, Action Center, Projects, Field, Schedule, Financials,
+  Estimating, Company (a hub for Resources/Workers/Customers/Equipment/
+  Divisions), Settings, instead of one top-level link per model. FOREMAN
+  gets a deliberately short nav (Today, Schedule, sign out) — no
+  executive/accounting/estimating complexity a foreman doesn't need.
+- **Role-aware, not role-forked**: every view above reads the same company/
+  project records regardless of who's looking — there's no separate
+  "executive database" or "accounting copy." What differs by role is which
+  views are reachable and what the root URL shows, not the underlying data.
+
+**A note on scope**: "Estimator" and "Accounting" are treated as *views*
+any ADMIN/PM can reach (Estimating → `/cost-codes`, Financials →
+`/financials`), not new login roles — this app still has exactly three
+roles (`ADMIN`/`PM`/`FOREMAN`). A dedicated estimator or accounting role is
+a small, real addition if a company using this actually separates those
+jobs day to day; it wasn't added speculatively this phase.
+
+This layer is covered by its own Playwright suite
+(`tests/e2e/company-operating-core.spec.ts`): every new page renders with
+live data and the right role sees the right thing; a Company Command
+number and the Financials page's version of the same number agree; a
+project flagged on the Portfolio drills into a job page whose own contract
+value matches; and — the two things this phase is only real if both
+hold — a foreman's daily report ripples into the company-wide labor-hours
+total with no second entry anywhere, and completing a job's stage removes
+it from Company Command with no separate "archive from dashboard" step.
 
 ## Stack
 
@@ -406,13 +504,21 @@ schedule → mobilize → daily update → job cost → exception detection →
 change order → materials → completion → billing ready → invoice → closeout
 lifecycle; that one daily report drives labor/materials/change-orders/
 exceptions automatically with no duplicate entry; that `/today` answers its
-six questions for a real exception; and the estimate ↔ actual closed loop —
+six questions for a real exception; the estimate ↔ actual closed loop —
 historical rates rendering live on the Award and Add Budget Line forms, the
 `/cost-codes` filters actually filtering, the estimating-accuracy verdict
 matching the seeded history, and a job's stage save into Complete recording
-a new benchmark with no separate step. Tests are safe to re-run without
-resetting between runs (dates are generated fresh each run) but are most
-meaningful right after a reset, against the seed data they're written for.
+a new benchmark with no separate step; and the Company Operating Core —
+every new company-wide page renders with live, cross-checked data, role
+routing sends a FOREMAN to `/field` and everyone else to Company Command,
+and — the two propagation/drill-down checks the phase is only real if both
+pass — a foreman's daily report moves the company-wide labor-hours total
+with no second entry anywhere, and completing a job's stage removes it
+from Company Command with no separate cleanup step. Tests are safe to
+re-run without resetting between runs (dates are generated fresh each run,
+and the one test that mutates a job's stage awards its own throwaway job
+rather than touching seeded data) but are most meaningful right after a
+reset, against the seed data they're written for.
 
 ## Deploying
 
@@ -431,12 +537,15 @@ meaningful right after a reset, against the seed data they're written for.
 
 ### Vercel
 
-The app is a standard Next.js + Prisma project, so Vercel's zero-config
-Next.js detection builds and runs it without a `vercel.json` — no build
-command override is needed since `npm run build` already runs
-`prisma generate` before `next build`, and `postinstall` also runs
-`prisma generate` so the client is generated in Vercel's own build
-environment (matching its runtime, so no `binaryTargets` override is needed).
+The app is a standard Next.js + Prisma project. `vercel.json` pins
+`{"framework": "nextjs"}` explicitly — Vercel's zero-config framework
+detection didn't reliably pick this up on an imported project in practice
+(it built fine but then looked for a static `public/` output directory and
+failed), so don't remove that file assuming auto-detection covers it.
+`npm run build` already runs `prisma generate` before `next build`, and
+`postinstall` also runs `prisma generate` so the client is generated in
+Vercel's own build environment (matching its runtime, so no
+`binaryTargets` override is needed).
 
 1. Import the repo into a new Vercel project.
 2. Set **Environment Variables** on the project: `DATABASE_URL` and
@@ -483,7 +592,7 @@ lib/session.ts                 getSession/requireSession/requireRole/requirePage
 lib/csv.ts                     Small CSV parser for the budget-line importer
 lib/job-costing.ts              Estimated/committed/actual/projected cost rollup per job
 lib/billing.ts                  Billing-readiness checklist computation
-lib/alerts.ts                   Exception-alert scan across all jobs, surfaced on /alerts, /today + dashboard
+lib/alerts.ts                   Exception-alert scan across all jobs, surfaced on /today + dashboard
 lib/format.ts                   Shared money/date formatting + stage/category labels
 lib/command-center-actions.ts   Server Actions for job command-center fields + category budgets
 lib/award-actions.ts            Server Action for the one-pass "award a project" flow (/jobs/new)
@@ -500,14 +609,43 @@ lib/equipment-actions.ts        Server Actions for equipment + job assignment (w
 lib/change-order-actions.ts     Server Actions for change orders
 lib/subcontractor-actions.ts    Server Actions for subcontractor costs
 app/api/photos/[id]/route.ts    Serves daily-report photo bytes (stored in Postgres)
-app/today/                      PM Daily Command
+app/today/                      Company Action Center
+app/alerts/                     Redirects to /today (folded in, not a separate view)
+
+--- Company Operating Core (all read layers over the tables above) ---
+lib/company-command.ts          Company Command Center rollup (/): active-operations risk buckets,
+                                 financial performance, labor, resources -- summed from
+                                 getProjectHealth()/getJobCosting() per open job, nothing stored
+lib/portfolio.ts                Project Portfolio (/projects): one row per job, same numbers as
+                                 that job's own Command Center, filterable/sortable
+lib/company-financials.ts       Company Financials (/financials): category rollup + losing-margin/
+                                 over-budget/billing-blocked project lists
+lib/resources.ts                Resource Command (/company/resources): cross-project crew/equipment
+                                 view aggregated from existing schedule/assignment/equipment tables
+lib/field-activity.ts           Field activity feed (/field) for ADMIN/PM; the same route resolves
+                                 a signed-in FOREMAN's personalized "today" home via Worker.userId
+lib/search.ts                   Global search (/search): case-insensitive contains() across jobs,
+                                 customers, workers, cost codes, change orders, materials, equipment,
+                                 document titles
+app/company/                    Company hub page + Resource Command
+app/projects/                   Project Portfolio
+app/financials/                 Company Financials
+app/field/                      Field activity feed / Foreman home
+app/search/                     Global search
 prisma/schema.prisma  Data model
-prisma/seed.ts        Sample data, demo login accounts, and two small-crew-project demo scenarios
-                       (Sunrise Duplex live mid-project, Cedar Court closed out) plus a full
-                       job-costing/field-ops demo scenario (Riverside Phase 2) and a handful of
-                       minimal completed-job history records seeding the estimating-accuracy
-                       dashboard with a clean "consistently underestimated" example
-tests/e2e/             Playwright E2E suite for the small-crew-project workflow (npm run test:e2e)
+prisma/seed.ts        Sample data, demo login accounts, seven simultaneous active/completed
+                       projects each demonstrating one condition cleanly for the Company Command
+                       Center (healthy, labor risk, schedule risk, material risk, change-work
+                       exposure, billing-ready, and historical-intelligence-feeding), plus the
+                       small-crew-project and estimate/actual-loop demo scenarios from earlier
+                       phases
+docs/ARCHITECTURE.md            Full company-lifecycle design (Lead/Bid through Executive Command)
+                                 this phase's build is the first slice of
+docs/OPERATING-DATA-MODEL.md    Source-of-truth audit for every major business concept -- what
+                                 this phase's company-wide views were built against
+tests/e2e/             Playwright E2E suite (npm run test:e2e) -- small-crew-project workflow,
+                       estimate/actual closed loop, and Company Operating Core (including data
+                       propagation and drill-down checks)
 playwright.config.ts   E2E test runner config
 railway.json          Railway build/deploy config
 .github/workflows/    CI

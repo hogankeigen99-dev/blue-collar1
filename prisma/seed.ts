@@ -64,7 +64,7 @@ async function main() {
       role: "PM",
     },
   });
-  await prisma.user.create({
+  const frankUser = await prisma.user.create({
     data: {
       companyId: company.id,
       name: "Frank Delgado",
@@ -123,7 +123,14 @@ async function main() {
   // --- Self-perform labor productivity demo data ---
 
   const frank = await prisma.worker.create({
-    data: { companyId: company.id, name: "Frank Delgado", role: "Concrete Foreman", phone: "555-0301", laborRate: 62 },
+    data: {
+      companyId: company.id,
+      name: "Frank Delgado",
+      role: "Concrete Foreman",
+      phone: "555-0301",
+      laborRate: 62,
+      userId: frankUser.id,
+    },
   });
   const miguel = await prisma.worker.create({
     data: { companyId: company.id, name: "Miguel Torres", role: "Laborer", phone: "555-0302", laborRate: 38 },
@@ -1086,6 +1093,243 @@ async function main() {
       },
     });
   }
+
+  // --- Three more simultaneous, currently-active projects (Company
+  // Operating Core V1) — each demonstrating one condition cleanly, so the
+  // Company Command Center's risk buckets are each populated by a project
+  // whose *only* problem is that bucket's problem, not a blend. Dates are
+  // relative to "today" (declared above for Sunrise Duplex) so the demo
+  // stays current no matter when the seed runs. Riverside Phase 2 above
+  // already demonstrates a labor+change-work blend, and Sunrise Duplex a
+  // full recovery arc — these three are deliberately narrower. ---
+
+  const carlos = await prisma.worker.create({
+    data: { companyId: company.id, name: "Carlos Nguyen", role: "Foreman", phone: "555-0601", laborRate: 54 },
+  });
+  const sam = await prisma.worker.create({
+    data: { companyId: company.id, name: "Sam Patel", role: "Foreman", phone: "555-0602", laborRate: 55 },
+  });
+  const wanda = await prisma.worker.create({
+    data: { companyId: company.id, name: "Wanda Ellis", role: "Foreman", phone: "555-0603", laborRate: 53 },
+  });
+
+  const oakridgeMedical = await prisma.customer.create({
+    data: { companyId: company.id, name: "Oakridge Medical Group", address: "410 Oakridge Pkwy", phone: "555-0700" },
+  });
+  const baysideDevelopment = await prisma.customer.create({
+    data: { companyId: company.id, name: "Bayside Development LLC", address: "9 Bayside Loop", phone: "555-0701" },
+  });
+  const fairviewDistrict = await prisma.customer.create({
+    data: { companyId: company.id, name: "Fairview School District", address: "500 Fairview Ave", phone: "555-0702" },
+  });
+
+  const drywallFraming = await prisma.costCode.create({
+    data: { companyId: company.id, code: "09 20 00", description: "Drywall and metal-stud framing", unit: "SF" },
+  });
+  const roofShingle = await prisma.costCode.create({
+    data: { companyId: company.id, code: "07 30 00", description: "Roof shingle replacement", unit: "SQ" },
+  });
+
+  // Project A — healthy, on-budget, on-schedule. Should show up nowhere in
+  // Company Command's risk buckets.
+  const oakridge = await prisma.job.create({
+    data: {
+      companyId: company.id,
+      divisionId: fieldOps.id,
+      jobNumber: `${SEED_YEAR}-010`,
+      title: "Oakridge Medical Office — TI Buildout",
+      description: "Interior tenant improvement — framing, drywall, MEP rough-in",
+      address: "410 Oakridge Pkwy, Suite 200",
+      status: "IN_PROGRESS",
+      projectType: "Commercial TI",
+      customerId: oakridgeMedical.id,
+      assignments: { create: [{ workerId: carlos.id }, { workerId: alice.id }] },
+      contractValue: 100000,
+      pmUserId: priya.id,
+      foremanWorkerId: carlos.id,
+      targetStartDate: addDays(today, -10),
+      targetEndDate: addDays(today, 20),
+      stage: "ACTIVE",
+    },
+  });
+  await generateChecklistForStage(prisma, oakridge.id, "PRECON");
+  await generateChecklistForStage(prisma, oakridge.id, "ACTIVE");
+  await prisma.jobChecklistItem.updateMany({
+    where: { jobId: oakridge.id, stage: "PRECON" },
+    data: { done: true, doneAt: addDays(today, -11), doneById: carlos.id },
+  });
+  await prisma.jobBudget.createMany({
+    data: [
+      { jobId: oakridge.id, category: "LABOR", estimatedAmount: 26000 },
+      { jobId: oakridge.id, category: "MATERIAL", estimatedAmount: 41000 },
+      { jobId: oakridge.id, category: "SUBCONTRACTOR", estimatedAmount: 18000 },
+    ],
+  });
+  const oakridgeDrywall = await prisma.jobCostCode.create({
+    data: { jobId: oakridge.id, costCodeId: drywallFraming.id, estimatedQty: 2400, estimatedHours: 480 }, // 0.2 hrs/SF
+  });
+  for (const offset of [-9, -8, -7, -6]) {
+    const rDate = addDays(today, offset);
+    const dr = await prisma.dailyReport.create({
+      data: { jobId: oakridge.id, date: rDate, crewSize: 2, workCompleted: "Framing and drywall on pace, no issues", submittedById: carlos.id },
+    });
+    await prisma.productionEntry.create({
+      data: { jobCostCodeId: oakridgeDrywall.id, dailyReportId: dr.id, date: rDate, hours: 8, quantity: 40, crewSize: 2, enteredById: carlos.id },
+    });
+    await prisma.dailyReport.update({ where: { id: dr.id }, data: { hours: 8, quantityInstalled: "40 SF framed and hung" } });
+  }
+  await prisma.scheduleAssignment.createMany({
+    data: [-1, 0, 1].flatMap((offset) => [
+      { workerId: carlos.id, jobId: oakridge.id, date: addDays(today, offset) },
+      { workerId: alice.id, jobId: oakridge.id, date: addDays(today, offset) },
+    ]),
+  });
+
+  // Project C — schedule risk only: production is reasonable, the calendar
+  // has simply slipped past the target finish while the job is still open.
+  const bayside = await prisma.job.create({
+    data: {
+      companyId: company.id,
+      divisionId: fieldOps.id,
+      jobNumber: `${SEED_YEAR}-011`,
+      title: "Bayside Retail Pad — Sitework",
+      description: "Excavation and grading for a new retail pad site",
+      address: "9 Bayside Loop",
+      status: "IN_PROGRESS",
+      projectType: "Site work",
+      customerId: baysideDevelopment.id,
+      assignments: { create: [{ workerId: sam.id }, { workerId: bob.id }] },
+      contractValue: 210000,
+      pmUserId: priya.id,
+      foremanWorkerId: sam.id,
+      targetStartDate: addDays(today, -35),
+      targetEndDate: addDays(today, -3),
+      stage: "ACTIVE",
+    },
+  });
+  await generateChecklistForStage(prisma, bayside.id, "PRECON");
+  await generateChecklistForStage(prisma, bayside.id, "ACTIVE");
+  await prisma.jobChecklistItem.updateMany({
+    where: { jobId: bayside.id, stage: "PRECON" },
+    data: { done: true, doneAt: addDays(today, -36), doneById: sam.id },
+  });
+  await prisma.jobBudget.createMany({
+    data: [
+      { jobId: bayside.id, category: "LABOR", estimatedAmount: 8500 },
+      { jobId: bayside.id, category: "EQUIPMENT", estimatedAmount: 12000 },
+      { jobId: bayside.id, category: "MATERIAL", estimatedAmount: 25000 },
+      { jobId: bayside.id, category: "SUBCONTRACTOR", estimatedAmount: 130000 },
+    ],
+  });
+  await prisma.subcontractorCost.create({
+    data: {
+      jobId: bayside.id,
+      vendor: "Coastal Paving Co",
+      description: "Grading, utility tie-ins, and asphalt paving",
+      committedAmount: 130000,
+      actualAmount: 0,
+      status: "COMMITTED",
+    },
+  });
+  const baysideExcavation = await prisma.jobCostCode.create({
+    data: { jobId: bayside.id, costCodeId: excavation.id, estimatedQty: 150, estimatedHours: 110 }, // 0.733 hrs/CY
+  });
+  for (const [offset, hours, qty] of [
+    [-6, 9, 12],
+    [-4, 9, 12],
+    [-1, 8, 11],
+  ] as const) {
+    const rDate = addDays(today, offset);
+    const dr = await prisma.dailyReport.create({
+      data: {
+        jobId: bayside.id,
+        date: rDate,
+        crewSize: 2,
+        workCompleted: "Excavation continuing — behind the original finish date after a permit delay in week 2, but production itself is steady",
+        submittedById: sam.id,
+      },
+    });
+    await prisma.productionEntry.create({
+      data: { jobCostCodeId: baysideExcavation.id, dailyReportId: dr.id, date: rDate, hours, quantity: qty, crewSize: 2, enteredById: sam.id },
+    });
+    await prisma.dailyReport.update({ where: { id: dr.id }, data: { hours, quantityInstalled: `${qty} CY excavated` } });
+  }
+  await prisma.scheduleAssignment.createMany({
+    data: [-1, 0, 1].flatMap((offset) => [
+      { workerId: sam.id, jobId: bayside.id, date: addDays(today, offset) },
+      { workerId: bob.id, jobId: bayside.id, date: addDays(today, offset) },
+    ]),
+  });
+
+  // Project D — material risk only: labor's on pace, but a shingle order is
+  // overdue and the crew can't close in the affected area without it.
+  const fairview = await prisma.job.create({
+    data: {
+      companyId: company.id,
+      divisionId: fieldOps.id,
+      jobNumber: `${SEED_YEAR}-012`,
+      title: "Fairview Elementary — Roof Replacement",
+      description: "Full roof tear-off and shingle replacement, occupied building",
+      address: "500 Fairview Ave",
+      status: "IN_PROGRESS",
+      projectType: "Roofing",
+      customerId: fairviewDistrict.id,
+      assignments: { create: [{ workerId: wanda.id }] },
+      contractValue: 138000,
+      pmUserId: priya.id,
+      foremanWorkerId: wanda.id,
+      targetStartDate: addDays(today, -15),
+      targetEndDate: addDays(today, 15),
+      stage: "ACTIVE",
+    },
+  });
+  await generateChecklistForStage(prisma, fairview.id, "PRECON");
+  await generateChecklistForStage(prisma, fairview.id, "ACTIVE");
+  await prisma.jobChecklistItem.updateMany({
+    where: { jobId: fairview.id, stage: "PRECON" },
+    data: { done: true, doneAt: addDays(today, -16), doneById: wanda.id },
+  });
+  await prisma.jobBudget.createMany({
+    data: [
+      { jobId: fairview.id, category: "LABOR", estimatedAmount: 13000 },
+      { jobId: fairview.id, category: "MATERIAL", estimatedAmount: 95000 },
+    ],
+  });
+  const fairviewRoof = await prisma.jobCostCode.create({
+    data: { jobId: fairview.id, costCodeId: roofShingle.id, estimatedQty: 80, estimatedHours: 240 }, // 3 hrs/SQ
+  });
+  const fairviewReportDate = addDays(today, -1);
+  const fairviewReport = await prisma.dailyReport.create({
+    data: {
+      jobId: fairview.id,
+      date: fairviewReportDate,
+      crewSize: 1,
+      workCompleted: "Tear-off and dry-in complete on the north slope, waiting on shingles to close it in",
+      materialNeeded: "Shingle delivery is late — crew is idle on the north slope until it arrives",
+      submittedById: wanda.id,
+    },
+  });
+  await prisma.productionEntry.create({
+    data: { jobCostCodeId: fairviewRoof.id, dailyReportId: fairviewReport.id, date: fairviewReportDate, hours: 24, quantity: 8, crewSize: 1, enteredById: wanda.id },
+  });
+  await prisma.dailyReport.update({ where: { id: fairviewReport.id }, data: { hours: 24, quantityInstalled: "8 SQ torn off and dried in" } });
+  await prisma.materialRequest.create({
+    data: {
+      jobId: fairview.id,
+      description: "30-year architectural shingles, matching color",
+      quantity: 80,
+      unit: "SQ",
+      status: "ORDERED",
+      vendor: "Statewide Roofing Supply",
+      poNumber: "PO-4410",
+      unitCost: 210,
+      totalCost: 16800,
+      expectedDeliveryDate: addDays(today, -6),
+      requestedById: wanda.id,
+      sourceDailyReportId: fairviewReport.id,
+    },
+  });
+  await prisma.scheduleAssignment.create({ data: { workerId: wanda.id, jobId: fairview.id, date: today } });
 
   // --- A second, unrelated company — proves cross-tenant isolation works,
   // not just that a companyId column exists. Its admin should never be able

@@ -141,6 +141,15 @@ model Worker {
   companyId           String
   division            Division?              @relation("WorkerDivision", fields: [divisionId], references: [id])
   divisionId          String?
+  // Links this crew member to their own login account, when they have one —
+  // User (an account someone signs in with) and Worker (a schedulable crew
+  // member, who may never log in at all) are deliberately separate today;
+  // this is the one connector between them, letting a signed-in FOREMAN's
+  // "today" home be personalized to their actual assignment instead of a
+  // generic company-wide list. Nullable: a Worker with no account, or a User
+  // (e.g. an office PM) with no Worker record, are both normal.
+  user                User?                  @relation(fields: [userId], references: [id])
+  userId              String?                @unique
   name                String
   role                String?
   phone               String?
@@ -191,6 +200,7 @@ model User {
   active       Boolean  @default(true)
   createdAt    DateTime @default(now())
   pmForJobs    Job[]    @relation("JobPM")
+  worker       Worker?
 
   // SSO-ready: a user authenticates either by password or by an external
   // IdP's subject claim. authProvider decides which login path validates

@@ -19,10 +19,14 @@ export default async function TodayPage() {
   return (
     <div className="space-y-6 max-w-3xl">
       <div>
-        <h1 className="text-2xl font-semibold">PM Daily Command</h1>
+        <Link href="/" className="text-sm text-blue-600 hover:underline">
+          &larr; Company command
+        </Link>
+        <h1 className="text-2xl font-semibold mt-1">Company action center</h1>
         <p className="text-slate-500 text-sm mt-1">
-          Everything across every job that needs a PM&apos;s attention today — what it is, why it matters, the
-          impact of leaving it, what to do, who owns it, and when it&apos;s due.
+          Everything across every project that needs attention today — what it is, why it matters, the impact of
+          leaving it, what to do, who owns it, and when it&apos;s due. Deterministic, not AI-ranked: critical
+          exceptions first, then everything else.
         </p>
       </div>
 
