@@ -94,7 +94,12 @@ same-day instead of on the next payroll cycle.
   **CSV export** (labor/material/equipment/subcontractor actuals, approved
   change orders, and invoices, all GL-coded) — built to integrate with an
   existing accounting system (QuickBooks, Sage, Foundation, etc.) via import,
-  not to replace it.
+  not to replace it. The export sits behind a connector abstraction
+  (`lib/accounting/` — an `AccountingConnector` interface, one
+  `CsvAccountingConnector` implementation today) specifically so a future
+  direct API connector for one of those systems is a new class implementing
+  the same interface against the same `AccountingExportData`, not a rewrite
+  of the export route.
 - **Automation engine**: stage-triggered checklists. A company-wide,
   admin-editable template (`/settings/checklist-templates`) defines what
   checklist items exist per project stage; the moment a job is created
