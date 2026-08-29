@@ -12,13 +12,23 @@ const STATUS_LABEL: Record<string, string> = {
   CANCELLED: "Cancelled",
 };
 
-export default async function JobsPage() {
+export default async function JobsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ division?: string }>;
+}) {
   const session = await requireSession();
   const prisma = scopedPrisma(session.companyId);
-  const jobs = await prisma.job.findMany({
-    orderBy: { createdAt: "desc" },
-    include: { customer: true, assignments: { include: { worker: true } } },
-  });
+  const { division: divisionId } = await searchParams;
+
+  const [jobs, divisions] = await Promise.all([
+    prisma.job.findMany({
+      where: divisionId ? { divisionId } : undefined,
+      orderBy: { createdAt: "desc" },
+      include: { customer: true, assignments: { include: { worker: true } }, division: true },
+    }),
+    prisma.division.findMany({ orderBy: { name: "asc" } }),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -33,6 +43,26 @@ export default async function JobsPage() {
           </Link>
         )}
       </div>
+
+      {divisions.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <Link
+            href="/jobs"
+            className={`px-3 py-1 rounded-full border ${!divisionId ? "bg-slate-900 text-white border-slate-900" : "bg-white hover:bg-slate-50"}`}
+          >
+            All divisions
+          </Link>
+          {divisions.map((d) => (
+            <Link
+              key={d.id}
+              href={`/jobs?division=${d.id}`}
+              className={`px-3 py-1 rounded-full border ${divisionId === d.id ? "bg-slate-900 text-white border-slate-900" : "bg-white hover:bg-slate-50"}`}
+            >
+              {d.name}
+            </Link>
+          ))}
+        </div>
+      )}
 
       {jobs.length === 0 ? (
         <p className="text-slate-500 text-sm">No jobs yet.</p>
@@ -50,6 +80,7 @@ export default async function JobsPage() {
                   {job.customer?.name ?? "No customer"}
                   {job.assignments.length > 0 &&
                     ` · ${job.assignments.map((a) => a.worker.name).join(", ")}`}
+                  {job.division && ` · ${job.division.name}`}
                 </div>
               </div>
               <span className="text-xs px-2 py-1 rounded-full bg-slate-100 text-slate-700">

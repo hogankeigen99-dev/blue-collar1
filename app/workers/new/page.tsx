@@ -1,8 +1,11 @@
+import { scopedPrisma } from "@/lib/tenant";
 import { createWorker } from "@/lib/actions";
 import { requirePageRole } from "@/lib/session";
 
 export default async function NewWorkerPage() {
-  await requirePageRole("ADMIN", "PM");
+  const session = await requirePageRole("ADMIN", "PM");
+  const prisma = scopedPrisma(session.companyId);
+  const divisions = await prisma.division.findMany({ orderBy: { name: "asc" } });
 
   return (
     <div className="max-w-xl space-y-6">
@@ -20,6 +23,19 @@ export default async function NewWorkerPage() {
             className="w-full border rounded-md px-3 py-2 text-sm"
           />
         </div>
+        {divisions.length > 0 && (
+          <div>
+            <label className="block text-sm font-medium mb-1">Division</label>
+            <select name="divisionId" className="w-full border rounded-md px-3 py-2 text-sm">
+              <option value="">— None —</option>
+              {divisions.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         <div>
           <label className="block text-sm font-medium mb-1">Phone</label>
           <input name="phone" className="w-full border rounded-md px-3 py-2 text-sm" />

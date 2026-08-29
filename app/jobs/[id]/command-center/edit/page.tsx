@@ -20,10 +20,11 @@ export default async function EditCommandCenterPage({
   const prisma = scopedPrisma(session.companyId);
   const { id } = await params;
 
-  const [job, pmUsers, foremen] = await Promise.all([
+  const [job, pmUsers, foremen, divisions] = await Promise.all([
     prisma.job.findFirst({ where: { id } }),
     prisma.user.findMany({ where: { role: { in: ["ADMIN", "PM"] }, active: true }, orderBy: { name: "asc" } }),
     prisma.worker.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
+    prisma.division.findMany({ orderBy: { name: "asc" } }),
   ]);
   if (!job) notFound();
 
@@ -62,6 +63,20 @@ export default async function EditCommandCenterPage({
             ))}
           </select>
         </div>
+
+        {divisions.length > 0 && (
+          <div>
+            <label className="block text-sm font-medium mb-1">Division</label>
+            <select name="divisionId" defaultValue={job.divisionId ?? ""} className="w-full border rounded-md px-3 py-2 text-sm">
+              <option value="">— None —</option>
+              {divisions.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <div>
           <label className="block text-sm font-medium mb-1">Foreman</label>

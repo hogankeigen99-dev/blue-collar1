@@ -34,7 +34,7 @@ export default async function JobDetailPage({
   // a clean 404.
   const job = await prisma.job.findFirst({
     where: { id },
-    include: { customer: true, assignments: { include: { worker: true } }, pm: true, foreman: true },
+    include: { customer: true, assignments: { include: { worker: true } }, pm: true, foreman: true, division: true },
   });
   if (!job) notFound();
 
@@ -107,6 +107,10 @@ export default async function JobDetailPage({
         <div>
           <div className="text-slate-500">Stage</div>
           <div className="font-medium">{PROJECT_STAGE_LABEL[job.stage]}</div>
+        </div>
+        <div>
+          <div className="text-slate-500">Division</div>
+          <div className="font-medium">{job.division?.name ?? "—"}</div>
         </div>
         <div>
           <div className="text-slate-500">Contract value</div>

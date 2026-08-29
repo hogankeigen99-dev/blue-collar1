@@ -24,6 +24,12 @@ export async function createWorker(formData: FormData) {
   const prisma = scopedPrisma(session.companyId);
   const name = str(formData, "name");
   if (!name) throw new Error("Name is required");
+  const divisionId = str(formData, "divisionId");
+  if (divisionId) {
+    // Division is a tenant model but the id is client-supplied — verify it
+    // belongs to this company before assigning a worker to it.
+    await prisma.division.findFirstOrThrow({ where: { id: divisionId } });
+  }
 
   await prisma.worker.create({
     data: {
@@ -33,6 +39,7 @@ export async function createWorker(formData: FormData) {
       phone: str(formData, "phone"),
       email: str(formData, "email"),
       laborRate: num(formData, "laborRate"),
+      divisionId,
     },
   });
 

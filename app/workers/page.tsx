@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export default async function WorkersPage() {
   const session = await requireSession();
   const prisma = scopedPrisma(session.companyId);
-  const workers = await prisma.worker.findMany({ orderBy: { name: "asc" } });
+  const workers = await prisma.worker.findMany({ orderBy: { name: "asc" }, include: { division: true } });
 
   return (
     <div className="space-y-6">
@@ -32,7 +32,7 @@ export default async function WorkersPage() {
             <Link key={w.id} href={`/workers/${w.id}`} className="block px-4 py-3 hover:bg-slate-50">
               <div className="font-medium">{w.name}</div>
               <div className="text-sm text-slate-500">
-                {[w.role, w.phone, w.email].filter(Boolean).join(" · ") || "—"}
+                {[w.role, w.phone, w.email, w.division?.name].filter(Boolean).join(" · ") || "—"}
                 {!w.active && " · inactive"}
               </div>
             </Link>

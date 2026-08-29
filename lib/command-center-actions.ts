@@ -29,8 +29,15 @@ export async function updateJobCommandCenter(formData: FormData) {
   const targetStart = str(formData, "targetStartDate");
   const targetEnd = str(formData, "targetEndDate");
   const newStage = str(formData, "stage");
+  const divisionId = str(formData, "divisionId");
 
   const before = await prisma.job.findFirstOrThrow({ where: { id: jobId }, select: { stage: true } });
+
+  if (divisionId) {
+    // Division is a tenant model but the id is client-supplied — verify it
+    // belongs to this company before assigning the job to it.
+    await prisma.division.findFirstOrThrow({ where: { id: divisionId } });
+  }
 
   await prisma.job.update({
     where: { id: jobId },
@@ -38,6 +45,7 @@ export async function updateJobCommandCenter(formData: FormData) {
       contractValue: num(formData, "contractValue") ?? null,
       pmUserId: str(formData, "pmUserId") ?? null,
       foremanWorkerId: str(formData, "foremanWorkerId") ?? null,
+      divisionId: divisionId ?? null,
       targetStartDate: targetStart ? new Date(targetStart) : null,
       targetEndDate: targetEnd ? new Date(targetEnd) : null,
       stage: (newStage as never) ?? undefined,
