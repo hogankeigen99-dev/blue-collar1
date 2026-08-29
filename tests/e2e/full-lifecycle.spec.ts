@@ -149,12 +149,16 @@ test.describe("Small-project full lifecycle", () => {
     expect(bodyText).toContain("Submit final invoice");
     expect(bodyText).toContain("Ready to invoice");
 
+    // Pay application: one SOV line for the original contract, one for the
+    // change order (auto-created when it was approved above) — bill both to
+    // 100% since this job is headed to COMPLETE right after.
     await page.goto(`${jobHref}/invoices/new`);
-    await page.fill('input[name="invoiceNumber"]', `INV-${tag}`);
-    await page.fill('input[name="amount"]', "20000");
+    await page.locator("tr", { hasText: "original contract" }).locator('input[name="pctCompleteToDate"]').fill("100");
+    await page.locator("tr", { hasText: "CO:" }).locator('input[name="pctCompleteToDate"]').fill("100");
     await page.fill('input[name="date"]', startDate);
-    await page.click('button:has-text("Create invoice")');
+    await page.click('button:has-text("Submit pay application")');
     await page.waitForURL(`${jobHref}/invoices`);
+    await expect(page.locator("body")).toContainText("100% complete");
 
     await page.goto(`${jobHref}/command-center/edit`);
     await page.selectOption('select[name="stage"]', "COMPLETE");

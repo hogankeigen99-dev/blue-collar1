@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { requireSession, requireRole } from "@/lib/session";
 import { logAudit } from "@/lib/audit";
 import { dispatchWebhook } from "@/lib/webhooks";
+import { ensureContract } from "@/lib/contract";
 
 function str(formData: FormData, key: string): string | undefined {
   const v = formData.get(key);
@@ -70,6 +71,30 @@ export async function updateChangeOrder(formData: FormData) {
       approvedAt: status === "APPROVED" ? new Date() : status === "REJECTED" ? null : undefined,
     },
   });
+
+  // Keep the Schedule of Values in sync with approved change work — a CO's
+  // revenue becomes billable to the owner the moment it's approved, and
+  // stops being billable (line removed) the moment it's un-approved, as
+  // long as nothing has been billed against it yet.
+  const existingLine = await prisma.contractLine.findUnique({
+    where: { sourceChangeOrderId: id },
+    include: { invoiceLines: true },
+  });
+  if (status === "APPROVED" && co.revenueAmount) {
+    const contract = await ensureContract(prisma, jobId);
+    await prisma.contractLine.upsert({
+      where: { sourceChangeOrderId: id },
+      create: {
+        contractId: contract.id,
+        description: `CO: ${co.title}`,
+        scheduledValue: co.revenueAmount,
+        sourceChangeOrderId: id,
+      },
+      update: { scheduledValue: co.revenueAmount, description: `CO: ${co.title}` },
+    });
+  } else if (existingLine && existingLine.invoiceLines.length === 0) {
+    await prisma.contractLine.delete({ where: { id: existingLine.id } });
+  }
 
   if (status === "APPROVED") {
     await logAudit(session, {

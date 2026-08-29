@@ -109,6 +109,31 @@ export default async function AwardProjectPage({
                 defaultValue={opportunity?.estimatedValue ?? ""}
                 className="w-full border rounded-md px-3 py-2 text-sm"
               />
+              <p className="text-xs text-slate-500 mt-1">
+                Sets up the Schedule of Values as one starting line — split it into more billing lines later from the
+                job&apos;s contract page.
+              </p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Contract type</label>
+              <select name="contractType" defaultValue="LUMP_SUM" className="w-full border rounded-md px-3 py-2 text-sm">
+                <option value="LUMP_SUM">Lump sum</option>
+                <option value="GMP">GMP</option>
+                <option value="COST_PLUS">Cost plus</option>
+                <option value="TIME_AND_MATERIALS">Time &amp; materials</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Retainage (%)</label>
+              <input
+                name="retainagePct"
+                type="number"
+                step="any"
+                min="0"
+                max="100"
+                defaultValue="10"
+                className="w-full border rounded-md px-3 py-2 text-sm"
+              />
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">Division</label>

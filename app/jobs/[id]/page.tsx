@@ -199,7 +199,15 @@ export default async function JobDetailPage({
             label="Approved change orders"
             value={`${health.approvedChangeOrderCount} (${formatMoney(health.approvedChangeOrderRevenue)})`}
           />
-          <Stat label="Current contract value" value={formatMoney(health.currentContractValue)} />
+          <div>
+            <div className="text-slate-500 text-xs">Current contract value</div>
+            <div className="font-medium">
+              {formatMoney(health.currentContractValue)}{" "}
+              <Link href={`/jobs/${job.id}/contract`} className="text-xs text-blue-600 hover:underline font-normal">
+                (SOV)
+              </Link>
+            </div>
+          </div>
           <Stat label="Projected final cost" value={formatMoney(health.projectedFinalCost)} />
           <Stat
             label="Projected gross profit"
@@ -269,6 +277,9 @@ export default async function JobDetailPage({
         </Link>
         <Link href="/equipment" className="bg-white border rounded-md px-3 py-1.5 hover:bg-slate-50">
           Equipment
+        </Link>
+        <Link href={`/jobs/${job.id}/contract`} className="bg-white border rounded-md px-3 py-1.5 hover:bg-slate-50">
+          Contract &amp; SOV
         </Link>
         <Link href={`/jobs/${job.id}/invoices`} className="bg-white border rounded-md px-3 py-1.5 hover:bg-slate-50">
           Invoices

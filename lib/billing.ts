@@ -16,12 +16,13 @@ const OPEN_MATERIAL_STATUSES = ["REQUESTED", "APPROVED", "PO_ISSUED", "ORDERED"]
 
 export async function getBillingReadiness(companyId: string, jobId: string): Promise<BillingReadiness> {
   const prisma = scopedPrisma(companyId);
-  const [job, changeOrders, dailyReports, materialRequests, subcontractorCosts] = await Promise.all([
+  const [job, changeOrders, dailyReports, materialRequests, subcontractorCosts, contract] = await Promise.all([
     prisma.job.findFirstOrThrow({ where: { id: jobId } }),
     prisma.changeOrder.findMany({ where: { jobId } }),
     prisma.dailyReport.findMany({ where: { jobId }, orderBy: { date: "desc" }, take: 1 }),
     prisma.materialRequest.findMany({ where: { jobId } }),
     prisma.subcontractorCost.findMany({ where: { jobId } }),
+    prisma.contract.findFirst({ where: { jobId }, include: { lines: { include: { invoiceLines: true } } } }),
   ]);
 
   const checks: BillingCheck[] = [];
@@ -90,6 +91,21 @@ export async function getBillingReadiness(companyId: string, jobId: string): Pro
           .filter(Boolean)
           .join("; "),
   });
+
+  // Computed, not trusted — even though createPayApplication already
+  // refuses to bill a SOV line past 100%, this re-derives it from the raw
+  // InvoiceLine rows so the check stays honest if that ever changes.
+  if (contract) {
+    const overbilled = contract.lines.filter(
+      (l) => l.invoiceLines.reduce((max, il) => Math.max(max, il.pctCompleteToDate), 0) > 100
+    );
+    checks.push({
+      key: "sov_not_overbilled",
+      label: "Schedule of Values not over-billed",
+      ok: overbilled.length === 0,
+      detail: overbilled.length === 0 ? "No SOV line billed past 100%" : `${overbilled.length} line(s) billed past their scheduled value`,
+    });
+  }
 
   return { ready: checks.every((c) => c.ok), checks };
 }

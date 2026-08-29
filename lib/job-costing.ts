@@ -33,7 +33,7 @@ export type JobCosting = {
 
 export async function getJobCosting(companyId: string, jobId: string): Promise<JobCosting> {
   const prisma = scopedPrisma(companyId);
-  const [job, budgets, jobCostCodes, materialRequests, equipmentAssignments, subcontractorCosts, changeOrders, invoices] =
+  const [job, budgets, jobCostCodes, materialRequests, equipmentAssignments, subcontractorCosts, changeOrders, invoices, contract] =
     await Promise.all([
       prisma.job.findFirstOrThrow({ where: { id: jobId } }),
       prisma.jobBudget.findMany({ where: { jobId } }),
@@ -43,6 +43,7 @@ export async function getJobCosting(companyId: string, jobId: string): Promise<J
       prisma.subcontractorCost.findMany({ where: { jobId } }),
       prisma.changeOrder.findMany({ where: { jobId } }),
       prisma.invoice.findMany({ where: { jobId, status: { in: ["SENT", "PAID"] } } }),
+      prisma.contract.findFirst({ where: { jobId }, include: { lines: true } }),
     ]);
 
   const estimatedByCategory = Object.fromEntries(budgets.map((b) => [b.category, b.estimatedAmount]));
@@ -141,7 +142,15 @@ export async function getJobCosting(companyId: string, jobId: string): Promise<J
   const totalActual = categories.reduce((s, c) => s + c.actual, 0);
   const totalProjected = categories.reduce((s, c) => s + c.projected, 0);
 
-  const contractValue = (job.contractValue ?? 0) + changeOrderRevenue;
+  // Contract.lines (the Schedule of Values) is the source of truth once a
+  // job has a real Contract — an approved change order's revenue is
+  // already baked in there as its own CO-sourced line (see
+  // lib/change-order-actions.ts), so it isn't added a second time here.
+  // Falls back to the flat field + change-order revenue for the handful of
+  // historical-anchor seed jobs that were never given a real Contract.
+  const contractValue = contract
+    ? contract.lines.reduce((s, l) => s + l.scheduledValue, 0)
+    : (job.contractValue ?? 0) + changeOrderRevenue;
   const projectedFinalCost = totalProjected + changeOrderCost;
   const projectedGrossProfit = contractValue - projectedFinalCost;
   const projectedMarginPct = contractValue > 0 ? projectedGrossProfit / contractValue : null;

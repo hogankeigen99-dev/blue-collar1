@@ -103,7 +103,16 @@ pattern the estimate/actual loop already proved works (a completed job's
 
 ## 3. Stage by stage
 
-### 3.1 Lead / Bid — **Missing**
+### 3.1 Lead / Bid — **Built** (as `Opportunity`)
+
+**Shipped as `Opportunity`/`OpportunityCostCode`** — the same design this
+section proposed, renamed to match how the work was actually requested.
+The target model/automation below is the original proposal and differs in
+naming only (`Opportunity.stage` instead of `Lead.status`, no separate
+`NEW`/`QUALIFYING`/`ESTIMATING` states — `OPPORTUNITY`/`BIDDING`/
+`SUBMITTED` cover the same pre-decision ground); see
+`docs/OPERATING-DATA-MODEL.md`'s §Opportunity for what's actually live.
+Left below for the historical design rationale.
 
 **Purpose.** Track what the company is chasing before it's a real job:
 what's out to bid, its estimated value, and whether it was won — so win
@@ -208,7 +217,7 @@ WON is the seam, not a shared table.
 
 ---
 
-### 3.4 Contract — **Missing** (today: `Job.contractValue`, a single float)
+### 3.4 Contract — **Built**
 
 **Purpose.** A real contract has a type, a retainage rate, and a
 **Schedule of Values (SOV)** — the owner-facing billing breakdown, which is
@@ -217,30 +226,35 @@ line like "10% Mobilization" is something you bill the owner for that has
 no cost-code equivalent). Billing (§3.12) and Cash (§3.13) both depend on
 this distinction existing.
 
-**Target model.**
+**Shipped model.**
 ```
 Contract          -- 1:1 with Job
   id, jobId
   type            LUMP_SUM | COST_PLUS | TIME_AND_MATERIALS | GMP
   retainagePct
   executedDate
-  documentId?      -- link to the signed Document
 
 ContractLine       -- the Schedule of Values
   id, contractId
   description, scheduledValue, sortOrder
+  sourceChangeOrderId?  -- set only for a CO-generated line
 ```
+(The proposed `documentId?` link wasn't added — the existing `Document`
+model already has a `CONTRACT` category and a job-scoped upload flow; a
+second link field would have duplicated that rather than adding anything.)
 
-**Inputs.** On contract execution, `Job.contractValue` is derived from
-`sum(ContractLine.scheduledValue)` instead of being typed in directly —
-the Command Center field becomes read-only/computed the same way "billed
-to date" already became computed from real `Invoice` rows instead of a
-manually-typed total.
+**Inputs.** `Job.contractValue` stays as the frozen, never-rewritten
+number entered at Award (the historical "as-awarded" baseline other pages
+already reported); the live current contract value everywhere else is
+`sum(ContractLine.scheduledValue)` instead of a manually-typed total — the
+same "compute, don't type" upgrade "billed to date" already got from real
+`Invoice` rows.
 
-**Automation.** Approved `ChangeOrder.revenueAmount` already adjusts
-`currentContractValue` in `lib/job-costing.ts` — extend the same logic to
-add a `ContractLine` for the change order automatically, so the SOV never
-drifts out of sync with approved changes.
+**Automation.** Approving a `ChangeOrder` upserts a `ContractLine` tagged
+with its id for `revenueAmount`; un-approving it (before anything has been
+billed against that line) deletes the line again — the SOV can't drift out
+of sync with approved changes in either direction. See
+`lib/change-order-actions.ts`.
 
 ---
 
@@ -366,17 +380,15 @@ general ledger itself (§4, non-goals). No changes proposed.
 
 ---
 
-### 3.12 Billing — **Partial**
+### 3.12 Billing — **Built** (real progress billing); retainage release still missing
 
-**Exists.** `Invoice` (number, amount, date, DRAFT/SENT/PAID) and the
-computed billing-readiness checklist (`lib/billing.ts`).
+**Exists.** `Invoice` (number, amount, date, DRAFT/SENT/PAID), the
+computed billing-readiness checklist (`lib/billing.ts`), and now real
+progress billing against the SOV — the AIA G702/G703-style pay application
+every commercial GC actually bills with: this period's % complete per SOV
+line, retainage withheld, previous billed, current due.
 
-**Missing.** Real progress billing against the SOV — the AIA
-G702/G703-style pay application every commercial GC actually bills with:
-this period's % complete per SOV line, retainage withheld, previous
-billed, current due.
-
-**Target model.**
+**Shipped model.**
 ```
 InvoiceLine
   id, invoiceId, contractLineId
@@ -384,12 +396,21 @@ InvoiceLine
   amountThisPeriod, retainageWithheld
 ```
 
-**Automation.** `Invoice.amount` becomes
+**Automation.** `Invoice.amount` is
 `sum(InvoiceLine.amountThisPeriod) - sum(InvoiceLine.retainageWithheld)`
 instead of a typed-in number — same "compute, don't type" upgrade as
-`contractValue` in §3.4. Billing readiness gains one more check:
-"SOV lines billed sum to ≤ scheduled value" (can't over-bill a line),
-computed, not trusted.
+`contractValue` in §3.4. Billing readiness gained the planned check: "no
+SOV line billed past its scheduled value" — re-derived from the raw
+`InvoiceLine` rows, not trusted, even though `createPayApplication`
+already refuses to create an over-100%-complete line. See
+`lib/invoice-actions.ts` and `app/jobs/[id]/invoices/new`.
+
+**Still missing.** Retainage *release* — the closeout billing event that
+pays out everything withheld across the job. Every seeded job that's
+fully closed out and paid was instead given 0% retainage, so the demo's
+"fully paid, fully closed" state stays honest without faking a release
+event this phase doesn't model. The right home for it is Phase 3's
+Closeout maturity below.
 
 ---
 
@@ -553,8 +574,11 @@ Everything not pictured above (`Job`, `JobCostCode`, `CostCodeBenchmark`,
 
 ## 6. Cross-cutting
 
-- **Tenancy.** `Lead`, `Vendor`, `Contract` get direct `companyId` (they're
-  tenant-root-adjacent, like `Customer`/`CostCode` today). `ContractLine`,
+- **Tenancy.** `Lead`, `Vendor` get direct `companyId` (they're
+  tenant-root-adjacent, like `Customer`/`CostCode` today). `Contract`
+  shipped instead as a 1:1 child of `Job` (own tenant model already), the
+  same shape as `Invoice`/`ChangeOrder` — no direct `companyId` needed, the
+  job it belongs to is verified before it's ever looked up. `ContractLine`,
   `LeadEstimateLine`, `SchedulePhase`, `Subcontract`, `InvoiceLine`,
   `SubBid` inherit isolation from their parent, exactly like
   `ProductionEntry` inherits from `JobCostCode` today — same
@@ -611,16 +635,33 @@ the existing Award form's `?opportunityId=` prefill rather than a second
 creation path. See `docs/OPERATING-DATA-MODEL.md`'s § Opportunity and the
 README's "Company Operating Core" section for what's live.
 
-**`Contract`/`ContractLine` half: still not built.** `Job.contractValue`
-remains the flat field it always was — a real Schedule of Values is still
-the right eventual home for contract type/retainage/SOV-based billing
-(§3.4), and Billing/Cash (Phase 2) still depend on it existing first. Not
-reopened this phase; still next.
+**`Contract`/`ContractLine` half: built.** Shipped as designed in §3.4 —
+`Contract` (1:1 with `Job`, type/retainage/executed date) +
+`ContractLine` (the SOV), created automatically at Award with one starting
+line from the entered contract value, extended manually afterward or
+automatically by an approved `ChangeOrder`. `Job.contractValue` stays as
+the frozen "as-awarded" baseline it already was; the live current contract
+value is now `sum(ContractLine.scheduledValue)` instead of
+`contractValue + change orders`, per §3.4's "compute, don't type" plan.
+**§3.12 Billing's SOV-based progress-billing half is also built** as part
+of this same phase, ahead of its originally planned Phase 2 slot — real
+pay applications (`InvoiceLine`: % complete, amount this period, retainage
+withheld), because it depends directly on `Contract` existing and there
+was no reason to hold it for Vendor/Subcontract formalization, which
+doesn't. See `docs/OPERATING-DATA-MODEL.md`'s §Contract & Schedule of
+Values and §Invoice / pay application, and the README's "Company
+Operating Core" section, for what's live. `/cash` (AR/AP aging, forecast)
+was **not** built this phase — it's a company-wide rollup over
+`Invoice`/`Contract` commitments that doesn't need Vendor/Subcontract
+either, but wasn't asked for; still next, along with Procurement
+formalization below.
 
-### Phase 2 — Money in/out: Procurement formalization + Billing + Cash
-`Vendor`, `Subcontract`, `SubBid`; `InvoiceLine`/SOV-based progress
-billing; `/cash` (AR/AP aging, forecast). Financially load-bearing, and
-Billing/Cash can't be built honestly before Contract (Phase 1) exists.
+### Phase 2 — Money in/out: Procurement formalization + Cash
+`Vendor`, `Subcontract`, `SubBid` (procurement formalization — replacing
+`MaterialRequest`/`SubcontractorCost`'s free-text vendor field); `/cash`
+(AR/AP aging, forecast) over the `Contract`/`Invoice` data that now
+exists. SOV-based progress billing itself shipped in Phase 1 above,
+ahead of schedule, once Contract existed — nothing here blocks on it.
 
 ### Phase 3 — Field/Schedule maturity
 `SchedulePhase`, Closeout maturity (warranty, lien waivers, retainage

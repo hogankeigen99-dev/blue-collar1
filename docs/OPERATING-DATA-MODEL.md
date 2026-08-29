@@ -66,24 +66,45 @@ the same shape before wiring a second consumer to it.
 - **Consumed by:** `Job.customerId`, shown on Command Center, Portfolio.
 - **Live or snapshot:** live.
 
-### Contract value
+### Contract & Schedule of Values
 
-- **Source of truth (today):** `Job.contractValue` — a single field, set at
-  Award and editable on the Command Center edit form.
-- **Derived, not stored:** *current* contract value (`costing.contractValue`
-  in `lib/job-costing.ts`) = `Job.contractValue + sum(approved
-  ChangeOrder.revenueAmount)`. The Command Center shows both the original
-  (`Job.contractValue`) and the derived current figure — this is correct,
-  not duplication: one is the signed number, the other is what it computes
-  to today.
-- **Consumed by:** `lib/job-costing.ts`, `lib/project-health.ts`, billing
-  readiness is gated near it, now the Company Command Center and Portfolio
-  financial rollups.
-- **Finding:** a real `Contract`/Schedule-of-Values entity (proposed in
-  `docs/ARCHITECTURE.md` §3.4) is still the right eventual home for
-  contract *type*/retainage/SOV — out of scope for this phase, which reads
-  `Job.contractValue` + change orders exactly as every existing page
-  already does. No new field added here.
+- **Source of truth:** `Contract` (1:1 with `Job`) + `ContractLine` — the
+  owner-facing billing breakdown, `docs/ARCHITECTURE.md` §3.4's design,
+  built. `Job.contractValue` still exists as the frozen number entered at
+  Award — never rewritten afterward, kept purely as the historical
+  "originally awarded" baseline `lib/company-financials.ts` and
+  `lib/project-health.ts` already reported before this phase.
+- **Deliberately not the same list as cost codes** — a cost code tracks
+  internal cost; an SOV line like "10% Mobilization" is billed to the owner
+  and has no cost-code equivalent. Two real, different lists, same
+  reasoning as "Crew assignment vs. worker assignment" below.
+- **Created by:** `lib/award-actions.ts` (`awardProject`) — every newly
+  awarded job with a contract value gets a `Contract` and one starting SOV
+  line (`"{title} — original contract"`) automatically, no second setup
+  step. `lib/contract-actions.ts`'s `addContractLine` splits or extends it
+  by hand afterward (e.g. into Mobilization/Construction/Closeout).
+- **Updated by:** three places, each with exactly one job —
+  `lib/contract-actions.ts` (`updateContract` for type/retainage/executed
+  date, `addContractLine`/`deleteContractLine` for manual SOV lines) and
+  `lib/change-order-actions.ts` (`updateChangeOrder`), which upserts a
+  `ContractLine` tagged `sourceChangeOrderId` the moment a `ChangeOrder` is
+  approved — and deletes it again if the change order is un-approved before
+  anything has been billed against it. The SOV can never drift out of sync
+  with approved change work because nothing else is allowed to touch a
+  CO-sourced line.
+- **Derived, not typed:** *current* contract value
+  (`costing.contractValue` in `lib/job-costing.ts`) =
+  `sum(Contract.lines.scheduledValue)` when a job has a real `Contract` —
+  the same "compute, don't type" upgrade `Invoice.amount` got below.
+  Falls back to `Job.contractValue + sum(approved ChangeOrder.revenueAmount)`
+  only for the handful of minimal historical-anchor seed jobs that were
+  never given a real `Contract` (they exist purely to feed estimating
+  history, not to be billed).
+- **Consumed by:** `lib/job-costing.ts`, `lib/project-health.ts`, `lib/billing.ts`
+  (the over-billing check below), the Company Command Center, Portfolio,
+  and Financials rollups — none of them changed how they read
+  `costing.contractValue`, only what feeds it did.
+- **Live or snapshot:** live.
 
 ### Project stage
 
@@ -230,19 +251,41 @@ the same shape before wiring a second consumer to it.
 - **Source of truth:** none stored — computed by `getBillingReadiness()`
   (`lib/billing.ts`) from `Job.stage`, `ChangeOrder`, `DailyReport`,
   `MaterialRequest`, `SubcontractorCost`, `Job.punchListComplete`/
-  `requiredDocsComplete`.
-- **Consumed by:** Command Center, now the Company Financial View's
+  `requiredDocsComplete`, and now `Contract`/`ContractLine`/`InvoiceLine`
+  for the "no SOV line billed past its scheduled value" check — re-derived
+  from the raw `InvoiceLine` rows rather than trusted, even though
+  `createPayApplication` already refuses to create an over-100%-complete
+  line in the first place.
+- **Consumed by:** Command Center, the Company Financial View's
   billing-ready/blocked rollup.
 
-### Invoice
+### Invoice / pay application
 
-- **Source of truth:** `Invoice` — real records (number, amount, date,
-  status). "Billed to date" everywhere in the app is
-  `sum(SENT + PAID Invoice.amount)`, never a typed total.
-- **Created by:** `/jobs/[id]/invoices/new`, gated (in the UI, not
-  enforced server-side beyond role) behind billing readiness.
-- **Consumed by:** job costing, now Company Financial View's invoiced
-  rollup.
+- **Source of truth:** `Invoice` + `InvoiceLine` — a real pay application,
+  one `InvoiceLine` per `ContractLine` billed that period, the AIA
+  G702/G703 pattern (this period's % complete, amount earned, retainage
+  withheld). "Billed to date" everywhere in the app is still
+  `sum(SENT + PAID Invoice.amount)`, but that `amount` is now itself
+  computed — `sum(InvoiceLine.amountThisPeriod) - sum(InvoiceLine.retainageWithheld)`
+  — instead of typed in directly, the same upgrade `contractValue` got
+  above. A SOV line's own "billed to date" (shown on the contract and
+  invoices pages) is `sum(its InvoiceLine.amountThisPeriod)` — gross earned
+  value, not net of retainage, since retainage is cash withheld from
+  payment, not a discount on progress.
+- **Created by:** `lib/invoice-actions.ts`'s `createPayApplication`
+  (`/jobs/[id]/invoices/new`), gated (in the UI, not enforced server-side
+  beyond role) behind billing readiness. Requires a `Contract` with at
+  least one SOV line to exist first — every job Awarded with a contract
+  value has one automatically.
+- **Consumed by:** job costing, the Company Financial View's invoiced
+  rollup, the contract page's per-line billed-to-date/remaining.
+- **Deliberately out of scope this phase:** retainage *release* — the
+  final billing event that pays out what was withheld across the whole
+  job — isn't modeled. `docs/ARCHITECTURE.md`'s Phase 3 (Closeout
+  maturity) is the right eventual home for that prompt; every seeded job
+  that's fully closed out and paid was given 0% retainage instead, so the
+  "fully paid, fully closed" demo state stays honest without faking a
+  release event that doesn't exist yet.
 
 ### Historical productivity vs. estimating benchmark — snapshot feeding a live query, not duplication
 
@@ -284,3 +327,15 @@ duplicate of anything above. Both are documented in full under
 Award form already existed, so a won opportunity's data flows into it
 through the same `?opportunityId=` prefill rather than a second
 job-creation path.
+
+**Contract / Schedule of Values / Billing phase:** three new tables —
+`Contract`, `ContractLine`, `InvoiceLine` — replacing what
+`docs/ARCHITECTURE.md` §3.4/§3.12 had flagged as the flat `contractValue`
+field's and typed-`Invoice.amount`'s remaining "compute, don't type" gaps.
+Nothing about how the rest of the app *reads* current contract value or
+billed-to-date changed — `getJobCosting()` and `Invoice.amount` are still
+exactly the fields every downstream consumer already read; only what feeds
+them stopped being manually typed. The one new automation this phase adds
+(a `ChangeOrder`'s approval creating and un-creating its own `ContractLine`)
+follows the same "one write path per fact" rule as every stage transition
+in this document.

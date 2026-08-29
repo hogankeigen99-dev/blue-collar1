@@ -120,6 +120,26 @@ export async function awardProject(formData: FormData) {
     },
   });
 
+  // Contract & Schedule of Values — created here so every awarded job has a
+  // real Contract from day one instead of a second manual setup step. A
+  // single starting SOV line covers the whole contract value; the PM can
+  // split it into more granular billing lines afterward from the contract
+  // page (lib/contract-actions.ts's addContractLine).
+  const contractValue = num(formData, "contractValue");
+  if (contractValue !== undefined && contractValue > 0) {
+    const contract = await prisma.contract.create({
+      data: {
+        jobId: job.id,
+        type: (str(formData, "contractType") as never) ?? "LUMP_SUM",
+        retainagePct: num(formData, "retainagePct"),
+        executedDate: new Date(),
+      },
+    });
+    await prisma.contractLine.create({
+      data: { contractId: contract.id, description: `${title} — original contract`, scheduledValue: contractValue, sortOrder: 0 },
+    });
+  }
+
   // Budget by category
   const budgetData = ALL_CATEGORIES.map((category) => ({
     category,

@@ -21,17 +21,20 @@ materials/equipment, job costing, change management, billing readiness, and
 accounting.
 
 - **Award a project in one pass** (`/jobs/new`, `lib/award-actions.ts`):
-  customer, location, contract value, budget by category, cost codes, PM,
-  foreman, crew, start/target-completion dates, and any known initial
-  materials/equipment/subcontractors are all captured in a single form. That
-  one submit auto-generates the project's `jobNumber`, its PRECON startup
-  checklist (`lib/checklist.ts`), and the crew's day-by-day schedule for the
-  project's date range (`ScheduleAssignment` rows) alongside their formal
-  job assignment — so the crew and the schedule board start in sync instead
-  of being entered twice and drifting apart (the gap the `CREW_CONFLICT`
-  alert exists to catch). Reached directly, or pre-filled from a won
-  opportunity (`/jobs/new?opportunityId=…` — see "Company Operating Core"
-  below) — same form, same one submit, either way.
+  customer, location, contract value/type/retainage, budget by category,
+  cost codes, PM, foreman, crew, start/target-completion dates, and any
+  known initial materials/equipment/subcontractors are all captured in a
+  single form. That one submit auto-generates the project's `jobNumber`,
+  its PRECON startup checklist (`lib/checklist.ts`), a real `Contract` with
+  one starting Schedule of Values line for the entered contract value
+  (`/jobs/[id]/contract` — see "Contract, Schedule of Values & billing"
+  below), and the crew's day-by-day schedule for the project's date range
+  (`ScheduleAssignment` rows) alongside their formal job assignment — so
+  the crew and the schedule board start in sync instead of being entered
+  twice and drifting apart (the gap the `CREW_CONFLICT` alert exists to
+  catch). Reached directly, or pre-filled from a won opportunity
+  (`/jobs/new?opportunityId=…` — see "Company Operating Core" below) —
+  same form, same one submit, either way.
 - **The job Command Center is the single operational home**
   (`/jobs/[id]`, data from `lib/project-health.ts`): project number,
   customer, location, contract value, PM, foreman, crew, current stage,
@@ -40,9 +43,10 @@ accounting.
   estimated quantity — a genuinely different number, computed and labeled
   separately, not the same figure under two names), estimated/actual labor
   hours and cost with variance, material/equipment/subcontractor
-  budget-vs-actual, approved change orders, current contract value,
-  projected final cost/gross profit/margin, billing readiness, and current
-  exceptions — all on one page, meant to be readable in about 10 seconds.
+  budget-vs-actual, approved change orders, current contract value (linked
+  to its Schedule of Values), projected final cost/gross profit/margin,
+  billing readiness, and current exceptions — all on one page, meant to be
+  readable in about 10 seconds.
 - **One daily report is the foreman's entire day — nothing entered twice.**
   `/jobs/[id]/daily-reports/new` (`lib/daily-report-actions.ts`) is the only
   place hours, quantity, materials, equipment problems, and change
@@ -133,6 +137,29 @@ Command Center are never two different calculations of the same thing.
   project type and by estimator/PM, on the pipeline page and as a
   Company Command tile) reads every decided bid a company has ever
   recorded, not a rolling window.
+- **Contract, Schedule of Values & billing** (`/jobs/[id]/contract`,
+  `/jobs/[id]/invoices`, `lib/contract.ts`/`lib/contract-actions.ts`) —
+  the owner-facing billing breakdown, deliberately *not* the same list as
+  cost codes (a cost code tracks internal cost; an SOV line like "10%
+  Mobilization" is billed to the owner and has no cost-code equivalent).
+  Award creates a real `Contract` (type, retainage) with one starting SOV
+  line from the entered contract value; a PM can split it into more lines
+  afterward. Current contract value everywhere in the app — Command
+  Center, Portfolio, Financials — is now `sum(ContractLine.scheduledValue)`
+  instead of a typed number. Approving a `ChangeOrder` adds a matching SOV
+  line automatically (and removes it again if un-approved before it's been
+  billed) — the SOV can't drift out of sync with approved change work.
+  Billing itself is a real progress-billing pay application (the AIA
+  G702/G703 pattern): enter this period's cumulative % complete per SOV
+  line and the amount due and retainage withheld are computed live, not
+  typed — `Invoice.amount` is `sum(InvoiceLine.amountThisPeriod) -
+  sum(InvoiceLine.retainageWithheld)`, and billing readiness gained a "no
+  SOV line billed past its scheduled value" check, re-derived from the raw
+  billing records rather than trusted. Retainage *release* (the closeout
+  event that pays out everything withheld) isn't modeled yet — every
+  seeded job that's fully closed out and paid was instead given 0%
+  retainage, so the demo's "fully paid" jobs stay honest rather than
+  faking a release event.
 - **Project Portfolio** (`/projects`, `lib/portfolio.ts`) — one row per
   project, filterable by PM/foreman/project type/stage/risk, sortable, with
   the same columns the Command Center already computes per job (schedule %,
@@ -205,7 +232,14 @@ loss removes an opportunity from the open pipeline while keeping it in
 full history; and — the one this phase is only real if it holds — winning
 an opportunity prefills the real Award form with its title, contract
 value, and every bid line, and the resulting Job carries those cost codes
-through with no re-entry.
+through with no re-entry. Contract/SOV/billing has its own suite too
+(`tests/e2e/contract-billing.spec.ts`): a job's Schedule of Values total
+ties out with its Command Center's current contract value; Award creates
+a Contract with one starting SOV line from the entered terms; approving a
+change order adds a SOV line automatically with no separate entry;
+manually adding a line grows the scheduled total; and a pay application's
+live-computed amount and retainage match what's actually saved and shown
+on the invoices page afterward.
 
 ## Stack
 
@@ -310,9 +344,16 @@ through with no re-entry.
   same date updates it in place — no separate production-log step. See
   "Primary use case" above for what a material need, an equipment issue,
   and a change condition on this form each set in motion automatically.
+- **Contract & Schedule of Values** (`/jobs/[id]/contract`): a real
+  contract (type, retainage %, executed date) with an owner-facing SOV —
+  deliberately not the same list as cost codes. Award creates one starting
+  SOV line from the entered contract value automatically; split it into
+  more lines, or let it grow on its own as change orders are approved.
 - **Change orders** (`/jobs/[id]/change-orders`): a flagged change condition
   opens one automatically (`IDENTIFIED`) → PM prices it → approval adds the
-  revenue and cost into job costing automatically.
+  revenue and cost into job costing automatically, **and** adds a matching
+  line to the Schedule of Values automatically — removed again if the
+  change order is un-approved before it's been billed.
 - **Materials & procurement** (`/jobs/[id]/materials`): a field-flagged need
   opens a request automatically, or a PM can start one directly → approval →
   vendor/PO → ordered → received, with vendor, PO #, and cost tracked at
@@ -324,11 +365,17 @@ through with no re-entry.
 - **Subcontractor costs**: committed vs. actual per vendor per job, tracked
   inline on the Command Center.
 - **Billing readiness**: a computed checklist per job — completion, approved
-  change orders, required documents, recent field reports, punch list, and
-  no missing costs — so "ready to invoice" is a real answer, not a guess.
-- **Invoices** (`/jobs/[id]/invoices`): real invoice records (number, amount,
-  date, DRAFT/SENT/PAID) — "billed to date" everywhere in the app is computed
-  from these, not a manually-typed running total.
+  change orders, required documents, recent field reports, punch list, no
+  missing costs, and no Schedule of Values line billed past its scheduled
+  value — so "ready to invoice" is a real answer, not a guess.
+- **Pay applications** (`/jobs/[id]/invoices`): real progress billing
+  against the Schedule of Values — the AIA G702/G703 pattern. Enter this
+  period's cumulative % complete per SOV line; the amount due and
+  retainage withheld are computed live and on submit, never typed.
+  "Billed to date" everywhere in the app is computed from these
+  (`Invoice.amount = sum(InvoiceLine.amountThisPeriod) -
+  sum(InvoiceLine.retainageWithheld)`), not a manually-typed running
+  total.
 - **Accounting handoff** (`/accounting`): maps each cost category and cost
   code to your accounting system's GL code, then every job has a one-click
   **CSV export** (labor/material/equipment/subcontractor actuals, approved
@@ -617,8 +664,11 @@ lib/password.ts                Password hashing (Node crypto — server-actions/
 lib/auth-actions.ts            Login/logout Server Actions
 lib/session.ts                 getSession/requireSession/requireRole/requirePageRole helpers
 lib/csv.ts                     Small CSV parser for the budget-line importer
-lib/job-costing.ts              Estimated/committed/actual/projected cost rollup per job
-lib/billing.ts                  Billing-readiness checklist computation
+lib/job-costing.ts              Estimated/committed/actual/projected cost rollup per job -- current
+                                 contract value sourced from Contract/ContractLine (the SOV) when
+                                 a job has one, falling back to the flat field + change orders
+lib/billing.ts                  Billing-readiness checklist computation, incl. "no SOV line
+                                 billed past its scheduled value"
 lib/alerts.ts                   Exception-alert scan across all jobs, surfaced on /today + dashboard
 lib/format.ts                   Shared money/date formatting + stage/category labels
 lib/command-center-actions.ts   Server Actions for job command-center fields + category budgets
@@ -633,7 +683,8 @@ lib/daily-report-actions.ts     Server Action for daily field reports — the si
 lib/materials-actions.ts        Server Actions for cost codes/budget lines/CSV import
 lib/productivity-actions.ts     Server Actions for material requests and status updates
 lib/equipment-actions.ts        Server Actions for equipment + job assignment (with conflict warning)
-lib/change-order-actions.ts     Server Actions for change orders
+lib/change-order-actions.ts     Server Actions for change orders -- approval also upserts a
+                                 ContractLine for the approved revenue, un-approval removes it
 lib/subcontractor-actions.ts    Server Actions for subcontractor costs
 app/api/photos/[id]/route.ts    Serves daily-report photo bytes (stored in Postgres)
 app/today/                      Company Action Center
@@ -674,16 +725,33 @@ app/opportunities/              Pipeline list, new-opportunity form, and the bid
 app/jobs/[id]/cost-codes/new/budget-line-fields.tsx  Reused as-is by
                                  app/opportunities/[id]/cost-codes/new/ -- one historical-rate
                                  component, two forms that post to different Server Actions
+
+--- Contract, Schedule of Values & billing ---
+lib/contract.ts                 Read layer: getContract() (SOV lines + billed-to-date/remaining
+                                 per line) and ensureContract(), the defensive find-or-create used
+                                 by the change-order automation
+lib/contract-actions.ts         Server Actions: updateContract (type/retainage/executed date),
+                                 addContractLine/deleteContractLine (manual SOV lines)
+lib/invoice-actions.ts          createPayApplication -- one InvoiceLine per billed SOV line,
+                                 amount/retainage computed from cumulative % complete, never typed
+lib/invoice-number.ts           Next "INV-{jobNumber}-{seq}" pay-application number per job
+app/jobs/[id]/contract/         View/edit the Contract & Schedule of Values
+app/jobs/[id]/invoices/new/pay-app-lines.tsx  Client component: live-computed amount/retainage
+                                 per SOV line as % complete is typed, before submit
 prisma/schema.prisma  Data model
 prisma/seed.ts        Sample data, demo login accounts, seven simultaneous active/completed
                        projects each demonstrating one condition cleanly for the Company Command
                        Center (healthy, labor risk, schedule risk, material risk, change-work
                        exposure, billing-ready, and historical-intelligence-feeding), a bid
                        pipeline (two wins each converted to a real Job, two losses and a no-bid
-                       with reasons, two still-open bids), plus the small-crew-project and
-                       estimate/actual-loop demo scenarios from earlier phases
+                       with reasons, two still-open bids), a real Contract + Schedule of Values on
+                       every job with a contract value (multi-line, retainage, CO-sourced lines),
+                       and real multi-period pay-application history on several of them, plus the
+                       small-crew-project and estimate/actual-loop demo scenarios from earlier
+                       phases
 docs/ARCHITECTURE.md            Full company-lifecycle design (Lead/Bid through Executive Command)
-                                 -- the Opportunity pipeline is that design's Phase 1, now built
+                                 -- the Opportunity pipeline and Contract/SOV/Billing are that
+                                 design's Phase 1, now both built
 docs/OPERATING-DATA-MODEL.md    Source-of-truth audit for every major business concept -- what
                                  this phase's company-wide views were built against
 tests/e2e/             Playwright E2E suite (npm run test:e2e) -- small-crew-project workflow,

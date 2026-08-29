@@ -361,6 +361,8 @@ model Job {
   // The foreign key lives on Opportunity.wonJobId (set once, on WON) — this
   // is just the reverse side of that same relation, not a second FK.
   opportunity Opportunity? @relation("OpportunityWonJob")
+  // 1:1 — the real FK lives on Contract.jobId, this is the reverse side.
+  contract    Contract?
   // Human-readable project number ("2026-014") — the PM-facing identifier
   // instead of the opaque cuid. Auto-generated at award time
   // (lib/award-actions.ts): current year + next sequence for that
@@ -412,9 +414,13 @@ model Job {
   @@index([companyId])
 }
 
-// A real invoice record — "billed to date" is computed as the sum of SENT
-// and PAID invoices rather than a manually-typed running total, so it can't
-// drift from what was actually issued.
+// A real invoice record — a pay application. "amount" (what's actually due
+// this period) is computed as sum(InvoiceLine.amountThisPeriod) minus
+// sum(InvoiceLine.retainageWithheld) rather than a manually-typed total, so
+// it can't drift from the SOV lines actually billed — same "compute, don't
+// type" upgrade Contract.lines gave contractValue. A job without a Contract
+// yet (pre-migration data) can still get a line-less invoice with a typed
+// amount — lines is optional, not required.
 model Invoice {
   id            String        @id @default(cuid())
   job           Job           @relation(fields: [jobId], references: [id], onDelete: Cascade)
@@ -425,8 +431,75 @@ model Invoice {
   status        InvoiceStatus @default(DRAFT)
   notes         String?
   createdAt     DateTime      @default(now())
+  lines         InvoiceLine[]
 
   @@unique([jobId, invoiceNumber])
+}
+
+enum ContractType {
+  LUMP_SUM
+  COST_PLUS
+  TIME_AND_MATERIALS
+  GMP
+}
+
+// The owner-facing contract: type, retainage, and the Schedule of Values
+// (SOV) — the billing breakdown, deliberately *not* the same list as cost
+// codes (a cost code tracks internal cost; an SOV line like "10%
+// Mobilization" is billed to the owner and has no cost-code equivalent).
+// 1:1 with Job, created automatically at Award (lib/award-actions.ts) so
+// every new job has one from day one rather than a second manual setup
+// step. The signed document itself lives in the existing Document model
+// (category: CONTRACT) — no separate link field needed here.
+model Contract {
+  id           String         @id @default(cuid())
+  job          Job            @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  jobId        String         @unique
+  type         ContractType   @default(LUMP_SUM)
+  retainagePct Float?
+  executedDate DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  lines        ContractLine[]
+}
+
+// A Schedule of Values line — what the owner is billed for. Most lines are
+// entered manually (mobilization, phases of scope, ...); a CO-sourced line
+// is created automatically the moment its ChangeOrder is approved
+// (lib/change-order-actions.ts), so the SOV total never drifts out of sync
+// with approved contract changes, and removed again if the change order is
+// later un-approved before anything against it has been billed.
+model ContractLine {
+  id                  String       @id @default(cuid())
+  contract            Contract     @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  contractId          String
+  description         String
+  scheduledValue      Float
+  sortOrder           Int          @default(0)
+  sourceChangeOrder   ChangeOrder? @relation(fields: [sourceChangeOrderId], references: [id])
+  sourceChangeOrderId String?      @unique
+  createdAt           DateTime     @default(now())
+
+  invoiceLines InvoiceLine[]
+}
+
+// One pay-application line per invoice per SOV line — the AIA G702/G703
+// pattern real progress billing uses: this period's earned amount and
+// retainage withheld, tied to a specific ContractLine so "billed to date"
+// per SOV line is a real sum instead of a typed total, and a line can't be
+// billed past its scheduled value (lib/billing.ts checks this, computed).
+model InvoiceLine {
+  id                    String       @id @default(cuid())
+  invoice               Invoice      @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoiceId             String
+  contractLine          ContractLine @relation(fields: [contractLineId], references: [id])
+  contractLineId        String
+  pctCompleteThisPeriod Float
+  pctCompleteToDate     Float
+  amountThisPeriod      Float
+  retainageWithheld     Float        @default(0)
+
+  @@unique([invoiceId, contractLineId])
 }
 
 model JobAssignment {
@@ -595,6 +668,9 @@ model ChangeOrder {
   createdById         String?
   createdAt           DateTime          @default(now())
   approvedAt          DateTime?
+  // 1:1 — the real FK lives on ContractLine.sourceChangeOrderId, this is
+  // the reverse side (set only while APPROVED and its revenue is billable).
+  contractLine        ContractLine?
 }
 
 // The upgraded field daily report — one per job per day, fast to fill out,

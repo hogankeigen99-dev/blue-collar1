@@ -10,6 +10,98 @@ const SEED_YEAR = new Date().getFullYear();
 
 const prisma = new PrismaClient();
 
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/** Creates a Contract + a default 3-line Schedule of Values (Mobilization
+ * 10% / Contract work in place 80% / Final completion & closeout 10%) for a
+ * job's contract value — the same shape lib/award-actions.ts creates
+ * automatically at Award time going forward. Returns the created lines in
+ * that order so callers can reference them for pay applications. `extraLines`
+ * mirrors a CO-sourced line the way lib/change-order-actions.ts creates one
+ * automatically on approval. */
+async function seedContract(
+  jobId: string,
+  contractValue: number,
+  opts: { retainagePct?: number; executedDate?: Date; extraLines?: { description: string; scheduledValue: number; sourceChangeOrderId?: string }[] } = {}
+) {
+  const contract = await prisma.contract.create({
+    data: {
+      jobId,
+      type: "LUMP_SUM",
+      retainagePct: opts.retainagePct ?? 10,
+      executedDate: opts.executedDate,
+    },
+  });
+  const mobilization = round2(contractValue * 0.1);
+  const closeout = round2(contractValue * 0.1);
+  const construction = round2(contractValue - mobilization - closeout);
+  const allLines = [
+    { description: "Mobilization & general conditions", scheduledValue: mobilization },
+    { description: "Contract work in place", scheduledValue: construction },
+    { description: "Final completion & closeout", scheduledValue: closeout },
+    ...(opts.extraLines ?? []),
+  ];
+  const lines = [];
+  for (const l of allLines) {
+    lines.push(
+      await prisma.contractLine.create({
+        data: {
+          contractId: contract.id,
+          description: l.description,
+          scheduledValue: l.scheduledValue,
+          sortOrder: lines.length,
+          sourceChangeOrderId: "sourceChangeOrderId" in l ? l.sourceChangeOrderId : undefined,
+        },
+      })
+    );
+  }
+  return { contract, lines };
+}
+
+/** Creates one pay application (Invoice + one InvoiceLine per billed SOV
+ * line) from cumulative percent-complete per line — the same math the real
+ * pay-app form computes (lib/invoice-actions.ts's createPayApplication), run
+ * directly against Prisma since seed data has no request/session to call the
+ * server action through. A line is skipped (not billed this pay app) when
+ * `newPct` equals `priorPct`. */
+async function seedPayApplication(params: {
+  jobId: string;
+  invoiceNumber: string;
+  date: Date;
+  status: "DRAFT" | "SENT" | "PAID";
+  retainagePct: number;
+  lines: { contractLineId: string; scheduledValue: number; priorPct: number; newPct: number }[];
+}) {
+  const lineData = params.lines
+    .filter((l) => l.newPct > l.priorPct)
+    .map((l) => {
+      const amountToDate = round2((l.newPct / 100) * l.scheduledValue);
+      const priorAmount = round2((l.priorPct / 100) * l.scheduledValue);
+      const amountThisPeriod = round2(amountToDate - priorAmount);
+      const retainageWithheld = round2(amountThisPeriod * (params.retainagePct / 100));
+      return {
+        contractLineId: l.contractLineId,
+        pctCompleteThisPeriod: round2(l.newPct - l.priorPct),
+        pctCompleteToDate: l.newPct,
+        amountThisPeriod,
+        retainageWithheld,
+      };
+    });
+  const amount = round2(lineData.reduce((s, l) => s + l.amountThisPeriod - l.retainageWithheld, 0));
+  return prisma.invoice.create({
+    data: {
+      jobId: params.jobId,
+      invoiceNumber: params.invoiceNumber,
+      date: params.date,
+      status: params.status,
+      amount,
+      lines: { create: lineData },
+    },
+  });
+}
+
 async function main() {
   // Two companies so multi-tenant isolation is demonstrable out of the box —
   // logging in as one company's users must never surface the other's data.
@@ -226,14 +318,21 @@ async function main() {
       submittedById: frank.id,
     },
   });
-  await prisma.invoice.create({
-    data: {
-      jobId: harborFoundation.id,
-      invoiceNumber: "INV-1001",
-      amount: 310000,
-      date: new Date("2026-07-16"),
-      status: "PAID",
-    },
+  // Closed out and fully paid — no retainage held back (already released,
+  // which this app doesn't model the release event for, so simplest to
+  // just not withhold any here and keep the "fully paid, fully closed"
+  // story internally consistent).
+  const harborContract = await seedContract(harborFoundation.id, 310000, {
+    retainagePct: 0,
+    executedDate: new Date("2026-06-20"),
+  });
+  await seedPayApplication({
+    jobId: harborFoundation.id,
+    invoiceNumber: "INV-1001",
+    date: new Date("2026-07-16"),
+    status: "PAID",
+    retainagePct: 0,
+    lines: harborContract.lines.map((l) => ({ contractLineId: l.id, scheduledValue: l.scheduledValue, priorPct: 0, newPct: 100 })),
   });
   // Estimate/actual closed loop: the at-completion benchmark a real
   // COMPLETE transition (lib/command-center-actions.ts) would have
@@ -428,7 +527,7 @@ async function main() {
       createdById: frank.id,
     },
   });
-  await prisma.changeOrder.create({
+  const riversideFootingCO = await prisma.changeOrder.create({
     data: {
       jobId: riverside2.id,
       title: "Additional footing at grid C4",
@@ -441,10 +540,37 @@ async function main() {
     },
   });
 
-  await prisma.invoice.createMany({
-    data: [
-      { jobId: riverside2.id, invoiceNumber: "INV-2001", amount: 150000, date: new Date("2026-08-15"), status: "PAID" },
-      { jobId: riverside2.id, invoiceNumber: "INV-2002", amount: 60000, date: new Date("2026-08-25"), status: "SENT" },
+  // Mid-project, real retainage — the CO line exists (mirroring the
+  // approval automation) but isn't billed yet, a realistic "billed next
+  // pay app" state that also shows headroom against the over-billing guard.
+  const riversideContract = await seedContract(riverside2.id, 620000, {
+    retainagePct: 10,
+    executedDate: new Date("2026-08-01"),
+    extraLines: [
+      { description: `CO: ${riversideFootingCO.title}`, scheduledValue: 8500, sourceChangeOrderId: riversideFootingCO.id },
+    ],
+  });
+  const [riversideMob, riversideConstruction] = riversideContract.lines;
+
+  await seedPayApplication({
+    jobId: riverside2.id,
+    invoiceNumber: "INV-2001",
+    date: new Date("2026-08-15"),
+    status: "PAID",
+    retainagePct: 10,
+    lines: [
+      { contractLineId: riversideMob.id, scheduledValue: riversideMob.scheduledValue, priorPct: 0, newPct: 100 },
+      { contractLineId: riversideConstruction.id, scheduledValue: riversideConstruction.scheduledValue, priorPct: 0, newPct: 20 },
+    ],
+  });
+  await seedPayApplication({
+    jobId: riverside2.id,
+    invoiceNumber: "INV-2002",
+    date: new Date("2026-08-25"),
+    status: "SENT",
+    retainagePct: 10,
+    lines: [
+      { contractLineId: riversideConstruction.id, scheduledValue: riversideConstruction.scheduledValue, priorPct: 20, newPct: 45 },
     ],
   });
 
@@ -661,6 +787,15 @@ async function main() {
   await prisma.changeOrder.updateMany({
     where: { jobId: sunriseDuplex.id, sourceDailyReportId: sunriseDay2.id },
     data: { status: "APPROVED", revenueAmount: 2600, costAmount: 1700, approvedAt: addDays(projectStart, 3) },
+  });
+  const sunriseFootingCO = await prisma.changeOrder.findFirstOrThrow({
+    where: { jobId: sunriseDuplex.id, sourceDailyReportId: sunriseDay2.id },
+  });
+  // Still mid-project (day 5 of 7) — a real Contract/SOV, but not billed yet.
+  await seedContract(sunriseDuplex.id, 42000, {
+    retainagePct: 10,
+    executedDate: addDays(projectStart, -3),
+    extraLines: [{ description: `CO: ${sunriseFootingCO.title}`, scheduledValue: 2600, sourceChangeOrderId: sunriseFootingCO.id }],
   });
   const sunriseDay4 = await prisma.dailyReport.create({
     data: {
@@ -911,6 +1046,9 @@ async function main() {
     where: { jobId: cedarCourt.id, sourceDailyReportId: cedarDay2.id },
     data: { status: "APPROVED", revenueAmount: 2200, costAmount: 1400, approvedAt: addDays(cedarStart, 3) },
   });
+  const cedarIrrigationCO = await prisma.changeOrder.findFirstOrThrow({
+    where: { jobId: cedarCourt.id, sourceDailyReportId: cedarDay2.id },
+  });
   const cedarDay4 = await prisma.dailyReport.create({
     data: { jobId: cedarCourt.id, date: addDays(cedarStart, 3), crewSize: 2, workCompleted: "Rebar arrived, poured slab section B — back to a normal pace", submittedById: tasha.id },
   });
@@ -990,14 +1128,20 @@ async function main() {
     },
   });
 
-  await prisma.invoice.create({
-    data: {
-      jobId: cedarCourt.id,
-      invoiceNumber: "INV-3001",
-      amount: 30700, // original contract + the approved change order
-      date: new Date("2026-08-11"),
-      status: "PAID",
-    },
+  // Closed out and fully paid — same no-retainage-held reasoning as Harbor
+  // View Foundation above.
+  const cedarContract = await seedContract(cedarCourt.id, 28500, {
+    retainagePct: 0,
+    executedDate: addDays(cedarStart, -5),
+    extraLines: [{ description: `CO: ${cedarIrrigationCO.title}`, scheduledValue: 2200, sourceChangeOrderId: cedarIrrigationCO.id }],
+  });
+  await seedPayApplication({
+    jobId: cedarCourt.id,
+    invoiceNumber: "INV-3001",
+    date: new Date("2026-08-11"),
+    status: "PAID",
+    retainagePct: 0,
+    lines: cedarContract.lines.map((l) => ({ contractLineId: l.id, scheduledValue: l.scheduledValue, priorPct: 0, newPct: 100 })),
   });
 
   // Cedar Court is COMPLETE, so its finished cost-code lines join the
@@ -1184,6 +1328,25 @@ async function main() {
       { workerId: alice.id, jobId: oakridge.id, date: addDays(today, offset) },
     ]),
   });
+  // Healthy and 10 days in — already through its first pay application,
+  // billing cleanly with no drama, distinct from Riverside Phase 2's more
+  // complex labor+CO story above.
+  const oakridgeContract = await seedContract(oakridge.id, 100000, {
+    retainagePct: 10,
+    executedDate: addDays(today, -18),
+  });
+  const [oakridgeMob, oakridgeConstruction] = oakridgeContract.lines;
+  await seedPayApplication({
+    jobId: oakridge.id,
+    invoiceNumber: "INV-4001",
+    date: addDays(today, -5),
+    status: "PAID",
+    retainagePct: 10,
+    lines: [
+      { contractLineId: oakridgeMob.id, scheduledValue: oakridgeMob.scheduledValue, priorPct: 0, newPct: 100 },
+      { contractLineId: oakridgeConstruction.id, scheduledValue: oakridgeConstruction.scheduledValue, priorPct: 0, newPct: 30 },
+    ],
+  });
 
   // Project C — schedule risk only: production is reasonable, the calendar
   // has simply slipped past the target finish while the job is still open.
@@ -1260,6 +1423,9 @@ async function main() {
       { workerId: bob.id, jobId: bayside.id, date: addDays(today, offset) },
     ]),
   });
+  // SOV set up at award; the schedule slip hasn't stopped billing from
+  // being possible, it just hasn't happened yet in this snapshot.
+  await seedContract(bayside.id, 210000, { retainagePct: 10, executedDate: addDays(today, -37) });
 
   // Project D — material risk only: labor's on pace, but a shingle order is
   // overdue and the crew can't close in the affected area without it.
@@ -1330,6 +1496,7 @@ async function main() {
     },
   });
   await prisma.scheduleAssignment.create({ data: { workerId: wanda.id, jobId: fairview.id, date: today } });
+  await seedContract(fairview.id, 138000, { retainagePct: 10, executedDate: addDays(today, -17) });
 
   // --- The bid pipeline (Opportunity -> Bid -> Estimate -> Award) — two
   // wins (each actually converted into a real Job, the same way the Award
@@ -1381,6 +1548,9 @@ async function main() {
     where: { id: wonHarborSitework.id },
     data: { wonJobId: harborSiteworkJob.id },
   });
+  // Just awarded, hasn't broken ground yet — the SOV a real Award would
+  // create from the bid line, no billing history yet.
+  await seedContract(harborSiteworkJob.id, 340000, { retainagePct: 10, executedDate: addDays(today, -2) });
 
   const wonFairviewFlooring = await prisma.opportunity.create({
     data: {
@@ -1419,6 +1589,7 @@ async function main() {
     where: { id: wonFairviewFlooring.id },
     data: { wonJobId: fairviewFlooringJob.id },
   });
+  await seedContract(fairviewFlooringJob.id, 52000, { retainagePct: 10, executedDate: addDays(today, -6) });
 
   await prisma.opportunity.create({
     data: {
