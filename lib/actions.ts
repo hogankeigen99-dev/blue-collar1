@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole, requireSession } from "@/lib/session";
 import { generateChecklistForStage } from "@/lib/checklist";
+import { logAudit } from "@/lib/audit";
 
 function str(formData: FormData, key: string): string | undefined {
   const v = formData.get(key);
@@ -99,8 +100,9 @@ export async function updateJobStatus(jobId: string, status: string) {
 }
 
 export async function deleteJob(jobId: string) {
-  await requireRole("ADMIN", "PM");
-  await prisma.job.delete({ where: { id: jobId } });
+  const session = await requireRole("ADMIN", "PM");
+  const job = await prisma.job.delete({ where: { id: jobId } });
+  await logAudit(session, { action: "job.deleted", entityType: "Job", entityId: jobId, detail: job.title });
   revalidatePath("/jobs");
   revalidatePath("/");
   redirect("/jobs");

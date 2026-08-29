@@ -495,3 +495,68 @@ model Document {
 
   @@index([jobId, category])
 }
+
+// One row per significant mutation — who, what, on which record, when. Not
+// every action in the app logs here (that would be most of the codebase);
+// it covers the mutations that matter for an audit trail: stage changes,
+// approvals, deletions, status changes on money-adjacent records.
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  userName   String
+  userRole   Role
+  action     String
+  entityType String
+  entityId   String?
+  jobId      String?
+  detail     String?
+  createdAt  DateTime @default(now())
+
+  @@index([jobId, createdAt])
+  @@index([entityType, entityId])
+}
+
+// Hashed API keys for server-to-server access (app/api/v1/*). The plaintext
+// key is shown exactly once, at creation, in the UI — never stored or
+// retrievable again, same principle as a password.
+model ApiKey {
+  id         String    @id @default(cuid())
+  name       String
+  keyHash    String    @unique
+  keyPrefix  String
+  active     Boolean   @default(true)
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+}
+
+enum WebhookEvent {
+  JOB_STAGE_CHANGED
+  CHANGE_ORDER_APPROVED
+  INVOICE_SENT
+  DAILY_REPORT_SUBMITTED
+}
+
+model Webhook {
+  id         String            @id @default(cuid())
+  url        String
+  events     WebhookEvent[]
+  secret     String
+  active     Boolean           @default(true)
+  createdAt  DateTime          @default(now())
+  deliveries WebhookDelivery[]
+}
+
+// Delivery attempts recorded for visibility — did the endpoint actually
+// receive it, what did it respond with.
+model WebhookDelivery {
+  id         String       @id @default(cuid())
+  webhook    Webhook      @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  webhookId  String
+  event      WebhookEvent
+  payload    String
+  statusCode Int?
+  success    Boolean
+  createdAt  DateTime     @default(now())
+
+  @@index([webhookId, createdAt])
+}

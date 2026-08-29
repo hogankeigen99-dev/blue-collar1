@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/session";
+import { logAudit } from "@/lib/audit";
+import { dispatchWebhook } from "@/lib/webhooks";
 
 function str(formData: FormData, key: string): string | undefined {
   const v = formData.get(key);
@@ -37,13 +39,24 @@ export async function createInvoice(formData: FormData) {
 }
 
 export async function updateInvoiceStatus(formData: FormData) {
-  await requireRole("ADMIN", "PM");
+  const session = await requireRole("ADMIN", "PM");
   const id = str(formData, "id");
   const jobId = str(formData, "jobId");
   const status = str(formData, "status");
   if (!id || !jobId || !status) throw new Error("Invoice, job, and status are required");
 
-  await prisma.invoice.update({ where: { id }, data: { status: status as never } });
+  const inv = await prisma.invoice.update({ where: { id }, data: { status: status as never } });
+
+  if (status === "SENT") {
+    await logAudit(session, {
+      action: "invoice.sent",
+      entityType: "Invoice",
+      entityId: id,
+      jobId,
+      detail: `${inv.invoiceNumber} — ${inv.amount}`,
+    });
+    await dispatchWebhook("INVOICE_SENT", { jobId, invoiceId: id, invoiceNumber: inv.invoiceNumber, amount: inv.amount });
+  }
 
   revalidatePath(`/jobs/${jobId}/invoices`);
   revalidatePath(`/jobs/${jobId}`);

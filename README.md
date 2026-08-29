@@ -109,12 +109,40 @@ same-day instead of on the next payroll cycle.
   categorized and living against the job record — any signed-in role can
   upload (a foreman shouldn't need a PM to attach a safety doc), PM/ADMIN
   can delete.
+- **Enterprise permissions slice**: an audit log (`/jobs/[id]/activity`)
+  recording who did what on stage changes, change-order approvals, invoice
+  sends, daily-report submissions, and job deletions; a read-only public API
+  (`/api/v1/jobs`) authenticated by a Bearer API key (`/settings/api-keys` —
+  the plaintext key is shown exactly once, at creation, then only its hash
+  is stored); and webhooks (`/settings/webhooks`) that POST an HMAC-SHA256-
+  signed JSON payload to your endpoint on job-stage-changed, change-order-
+  approved, invoice-sent, and daily-report-submitted, with delivery status
+  recorded per attempt.
 
 Not in scope for this MVP: invoicing/payments themselves (billing readiness
 tells you *when*, not how to generate the invoice), notifications (alerts are
 pull, not push — no email/SMS yet), and estimate imports from external
 takeoff/estimating software (cost-code budget lines can be CSV-imported, but
 full estimate line items are entered directly).
+
+**Deliberately not built, and why**: multi-tenant Company/Division data
+isolation, SSO, and DB backup/recovery were explicitly requested but are out
+of scope for this pass — not because they're unimportant, but because faking
+any of them would be worse than not having them:
+- **Company/Division isolation** needs every query across ~30 files scoped
+  by tenant; doing that safely requires a dedicated migration and an audit of
+  every single query, not a bolt-on flag — the risk of missing one and
+  leaking data across tenants is exactly the kind of half-measure this app's
+  build process has been avoiding throughout.
+- **SSO** needs a real identity provider registration (client ID/secret,
+  redirect URIs) that only you can create — there's no way to build this
+  without those credentials, and a UI that pretends to support it without a
+  working provider behind it would be a fake screen.
+- **Backup/recovery** is an infrastructure concern, not application code —
+  most managed Postgres providers (including Railway) already offer
+  automated backups/point-in-time recovery; turn that on at the provider
+  rather than trusting an in-app "backup now" button that can't actually
+  guarantee consistency the way a real WAL-based backup does.
 
 ## Local development
 

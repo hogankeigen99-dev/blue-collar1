@@ -14,5 +14,6 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!login|_next/static|_next/image|favicon.ico).*)"],
+  // /api/v1/* authenticates itself via a Bearer API key, not the session cookie.
+  matcher: ["/((?!login|api/v1|_next/static|_next/image|favicon.ico).*)"],
 };

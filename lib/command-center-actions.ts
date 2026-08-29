@@ -5,6 +5,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/session";
 import { generateChecklistForStage } from "@/lib/checklist";
+import { logAudit } from "@/lib/audit";
+import { dispatchWebhook } from "@/lib/webhooks";
 
 function str(formData: FormData, key: string): string | undefined {
   const v = formData.get(key);
@@ -19,7 +21,7 @@ function num(formData: FormData, key: string): number | undefined {
 }
 
 export async function updateJobCommandCenter(formData: FormData) {
-  await requireRole("ADMIN", "PM");
+  const session = await requireRole("ADMIN", "PM");
   const jobId = str(formData, "jobId");
   if (!jobId) throw new Error("Job is required");
 
@@ -46,6 +48,14 @@ export async function updateJobCommandCenter(formData: FormData) {
   // Automation: entering a new stage generates that stage's checklist.
   if (newStage && newStage !== before.stage) {
     await generateChecklistForStage(prisma, jobId, newStage);
+    await logAudit(session, {
+      action: "job.stage_changed",
+      entityType: "Job",
+      entityId: jobId,
+      jobId,
+      detail: `${before.stage} -> ${newStage}`,
+    });
+    await dispatchWebhook("JOB_STAGE_CHANGED", { jobId, from: before.stage, to: newStage });
   }
 
   revalidatePath(`/jobs/${jobId}`);

@@ -154,6 +154,9 @@ export default async function JobDetailPage({
         <Link href={`/jobs/${job.id}/documents`} className="bg-white border rounded-md px-3 py-1.5 hover:bg-slate-50">
           Documents
         </Link>
+        <Link href={`/jobs/${job.id}/activity`} className="bg-white border rounded-md px-3 py-1.5 hover:bg-slate-50">
+          Activity
+        </Link>
         {canEstimate && (
           <a
             href={`/api/jobs/${job.id}/accounting-export`}

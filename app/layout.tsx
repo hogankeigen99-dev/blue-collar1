@@ -55,7 +55,7 @@ export default async function RootLayout({
                     </Link>
                   )}
                   {session.role === "ADMIN" && (
-                    <Link href="/settings/checklist-templates" className="text-sm text-slate-600 hover:text-slate-900">
+                    <Link href="/settings" className="text-sm text-slate-600 hover:text-slate-900">
                       Settings
                     </Link>
                   )}

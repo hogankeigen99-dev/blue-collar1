@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireSession, requireRole } from "@/lib/session";
+import { logAudit } from "@/lib/audit";
+import { dispatchWebhook } from "@/lib/webhooks";
 
 function str(formData: FormData, key: string): string | undefined {
   const v = formData.get(key);
@@ -40,13 +42,13 @@ export async function createChangeOrder(formData: FormData) {
 
 /** PM prices it and moves it through submitted/approved/rejected — PM/ADMIN only. */
 export async function updateChangeOrder(formData: FormData) {
-  await requireRole("ADMIN", "PM");
+  const session = await requireRole("ADMIN", "PM");
   const id = str(formData, "id");
   const jobId = str(formData, "jobId");
   const status = str(formData, "status");
   if (!id || !jobId || !status) throw new Error("Change order, job, and status are required");
 
-  await prisma.changeOrder.update({
+  const co = await prisma.changeOrder.update({
     where: { id },
     data: {
       status: status as never,
@@ -55,6 +57,23 @@ export async function updateChangeOrder(formData: FormData) {
       approvedAt: status === "APPROVED" ? new Date() : status === "REJECTED" ? null : undefined,
     },
   });
+
+  if (status === "APPROVED") {
+    await logAudit(session, {
+      action: "change_order.approved",
+      entityType: "ChangeOrder",
+      entityId: id,
+      jobId,
+      detail: `"${co.title}" — revenue ${co.revenueAmount ?? 0}, cost ${co.costAmount ?? 0}`,
+    });
+    await dispatchWebhook("CHANGE_ORDER_APPROVED", {
+      jobId,
+      changeOrderId: id,
+      title: co.title,
+      revenueAmount: co.revenueAmount,
+      costAmount: co.costAmount,
+    });
+  }
 
   revalidatePath(`/jobs/${jobId}/change-orders`);
   revalidatePath(`/jobs/${jobId}`);
