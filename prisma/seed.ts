@@ -3,6 +3,11 @@ import { hashPassword } from "../lib/password";
 import { startOfWeek, addDays } from "../lib/schedule";
 import { generateChecklistForStage } from "../lib/checklist";
 
+/** Job numbers are normally auto-generated at award time (lib/job-number.ts)
+ * from the current year — seed data assigns them by hand in the same
+ * "{year}-{seq}" shape, per-company, in creation order. */
+const SEED_YEAR = new Date().getFullYear();
+
 const prisma = new PrismaClient();
 
 async function main() {
@@ -89,6 +94,7 @@ async function main() {
     data: {
       companyId: company.id,
       divisionId: fieldOps.id,
+      jobNumber: `${SEED_YEAR}-001`,
       title: "Fix breaker panel",
       description: "Replace faulty breaker in unit 4B",
       address: "123 River Rd, Unit 4B",
@@ -103,6 +109,7 @@ async function main() {
     data: {
       companyId: company.id,
       divisionId: fieldOps.id,
+      jobNumber: `${SEED_YEAR}-002`,
       title: "Leaking pipe under sink",
       description: "Kitchen sink leak, unit 2A",
       address: "123 River Rd, Unit 2A",
@@ -156,6 +163,7 @@ async function main() {
     data: {
       companyId: company.id,
       divisionId: fieldOps.id,
+      jobNumber: `${SEED_YEAR}-003`,
       title: "Harbor View — Foundation Pour",
       description: "Slab on grade for the parking structure foundation",
       address: "8800 Harbor View Dr",
@@ -219,6 +227,7 @@ async function main() {
     data: {
       companyId: company.id,
       divisionId: fieldOps.id,
+      jobNumber: `${SEED_YEAR}-004`,
       title: "Riverside Apartments — Phase 2 Slab",
       description: "Slab on grade, Phase 2 of the podium deck",
       address: "123 River Rd",
@@ -428,6 +437,235 @@ async function main() {
     ]),
   });
 
+  // --- The primary small-crew-project demo: a 7-day, 2-3 person foundation
+  // & slab job, seeded mid-stream (today is day 5 of 7) so the Command
+  // Center, job costing, billing readiness, and exception detection all have
+  // something real and current to show the moment the app is seeded — not
+  // just a finished job (Harbor View) or an open-ended large one (Riverside
+  // Phase 2). Dates are relative to "now" rather than hardcoded so the demo
+  // stays mid-stream no matter when the seed is run. ---
+
+  const diego = await prisma.worker.create({
+    data: { companyId: company.id, name: "Diego Ramirez", role: "Carpenter Foreman", phone: "555-0401", laborRate: 58 },
+  });
+  const jamal = await prisma.worker.create({
+    data: { companyId: company.id, name: "Jamal Washington", role: "Laborer", phone: "555-0402", laborRate: 34 },
+  });
+
+  const mapleStreet = await prisma.customer.create({
+    data: { companyId: company.id, name: "Maple Street Holdings", address: "212 Maple St", phone: "555-0500" },
+  });
+
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  const projectStart = addDays(today, -4); // day 5 of a 7-day project as of "today"
+  const projectEnd = addDays(today, 2);
+
+  const sunriseDuplex = await prisma.job.create({
+    data: {
+      companyId: company.id,
+      divisionId: fieldOps.id,
+      jobNumber: `${SEED_YEAR}-005`,
+      title: "Sunrise Duplex — Foundation & Slab",
+      description: "Excavation, footings, and slab-on-grade for a new duplex",
+      address: "212 Maple St",
+      status: "IN_PROGRESS",
+      customerId: mapleStreet.id,
+      assignments: { create: [{ workerId: diego.id }, { workerId: jamal.id }] },
+      contractValue: 42000,
+      pmUserId: priya.id,
+      foremanWorkerId: diego.id,
+      targetStartDate: projectStart,
+      targetEndDate: projectEnd,
+      stage: "ACTIVE",
+    },
+  });
+
+  await generateChecklistForStage(prisma, sunriseDuplex.id, "PRECON");
+  await generateChecklistForStage(prisma, sunriseDuplex.id, "MOBILIZATION");
+  await generateChecklistForStage(prisma, sunriseDuplex.id, "ACTIVE");
+  // PRECON and MOBILIZATION are behind this job now — mark them done.
+  await prisma.jobChecklistItem.updateMany({
+    where: { jobId: sunriseDuplex.id, stage: { in: ["PRECON", "MOBILIZATION"] } },
+    data: { done: true, doneAt: projectStart, doneById: diego.id },
+  });
+
+  await prisma.jobBudget.createMany({
+    data: [
+      { jobId: sunriseDuplex.id, category: "LABOR", estimatedAmount: 5200 },
+      { jobId: sunriseDuplex.id, category: "MATERIAL", estimatedAmount: 9800 },
+      { jobId: sunriseDuplex.id, category: "EQUIPMENT", estimatedAmount: 1600 },
+      { jobId: sunriseDuplex.id, category: "SUBCONTRACTOR", estimatedAmount: 2800 },
+    ],
+  });
+
+  // Crew schedule for the full 7-day span — generated alongside the formal
+  // crew assignment above, the way lib/award-actions.ts does it for new
+  // projects, so this job never exhibits the CREW_CONFLICT gap.
+  await prisma.scheduleAssignment.createMany({
+    data: Array.from({ length: 7 }, (_, i) => i).flatMap((offset) => [
+      { workerId: diego.id, jobId: sunriseDuplex.id, date: addDays(projectStart, offset) },
+      { workerId: jamal.id, jobId: sunriseDuplex.id, date: addDays(projectStart, offset) },
+    ]),
+  });
+
+  const sunriseExcavation = await prisma.jobCostCode.create({
+    data: {
+      jobId: sunriseDuplex.id,
+      costCodeId: excavation.id,
+      estimatedQty: 40,
+      estimatedHours: 24,
+    },
+  });
+  const sunriseSlab = await prisma.jobCostCode.create({
+    data: {
+      jobId: sunriseDuplex.id,
+      costCodeId: concreteSlab.id,
+      estimatedQty: 60,
+      estimatedHours: 54, // 0.9 hrs/CY estimate
+    },
+  });
+
+  // Day 1 (excavation, came in at/under estimate) and days 3-5 (slab pours,
+  // trending over estimate — labor overrun surfaces as a real, computed
+  // exception rather than a hand-authored one).
+  await prisma.productionEntry.create({
+    data: { jobCostCodeId: sunriseExcavation.id, date: addDays(projectStart, 0), hours: 22, quantity: 40, crewSize: 2, enteredById: diego.id },
+  });
+  await prisma.productionEntry.createMany({
+    data: [
+      { jobCostCodeId: sunriseSlab.id, date: addDays(projectStart, 2), hours: 15, quantity: 15, crewSize: 2, enteredById: diego.id },
+      { jobCostCodeId: sunriseSlab.id, date: addDays(projectStart, 3), hours: 15, quantity: 15, crewSize: 2, enteredById: diego.id },
+      { jobCostCodeId: sunriseSlab.id, date: addDays(projectStart, 4), hours: 15, quantity: 14, crewSize: 2, enteredById: diego.id, notes: "Rain delay cut the afternoon pour short" },
+    ],
+  });
+
+  const sunriseChangeReport = await prisma.dailyReport.create({
+    data: {
+      jobId: sunriseDuplex.id,
+      date: addDays(projectStart, 1),
+      crewSize: 2,
+      hours: 16,
+      workCompleted: "Set forms, placed rebar for footings",
+      blockers: "Found an old abandoned footing not shown on the plans at the north corner",
+      hasChangeCondition: true,
+      changeConditionNotes: "Demo and removal of undocumented footing before forms can be set at the north corner",
+      submittedById: diego.id,
+    },
+  });
+  await prisma.dailyReport.createMany({
+    data: [
+      {
+        jobId: sunriseDuplex.id,
+        date: addDays(projectStart, 0),
+        crewSize: 2,
+        hours: 22,
+        workCompleted: "Excavation and layout complete",
+        quantityInstalled: "40 CY excavated",
+        submittedById: diego.id,
+      },
+      {
+        jobId: sunriseDuplex.id,
+        date: addDays(projectStart, 2),
+        crewSize: 2,
+        hours: 15,
+        workCompleted: "Poured footings and started slab section A",
+        quantityInstalled: "15 CY slab",
+        submittedById: diego.id,
+      },
+      {
+        jobId: sunriseDuplex.id,
+        date: addDays(projectStart, 3),
+        crewSize: 2,
+        hours: 15,
+        workCompleted: "Poured slab section B",
+        quantityInstalled: "15 CY slab",
+        submittedById: diego.id,
+      },
+      {
+        jobId: sunriseDuplex.id,
+        date: addDays(projectStart, 4),
+        crewSize: 2,
+        hours: 15,
+        workCompleted: "Poured slab section C, cut short by rain",
+        quantityInstalled: "14 CY slab",
+        tomorrowPlan: "Finish remaining slab area, weather permitting",
+        submittedById: diego.id,
+      },
+    ],
+  });
+
+  // Material: concrete already delivered; rebar order is now overdue —
+  // a real MATERIAL_RISK exception, not a scripted one.
+  await prisma.materialRequest.createMany({
+    data: [
+      {
+        jobId: sunriseDuplex.id,
+        description: "Ready-mix concrete, 3500 PSI",
+        quantity: 60,
+        unit: "CY",
+        status: "RECEIVED",
+        vendor: "Summit Concrete Supply",
+        poNumber: "PO-2201",
+        unitCost: 162,
+        totalCost: 9720,
+        expectedDeliveryDate: addDays(projectStart, 2),
+        receivedDate: addDays(projectStart, 2),
+        requestedById: diego.id,
+      },
+      {
+        jobId: sunriseDuplex.id,
+        description: "#4 rebar, footings and slab",
+        quantity: 3,
+        unit: "TON",
+        status: "ORDERED",
+        vendor: "Metro Rebar & Supply",
+        poNumber: "PO-2205",
+        unitCost: 1180,
+        totalCost: 3540,
+        expectedDeliveryDate: addDays(projectStart, 3), // now in the past — overdue
+        requestedById: diego.id,
+      },
+    ],
+  });
+
+  const miniExcavator = await prisma.equipment.create({
+    data: { companyId: company.id, name: "Mini excavator", type: "Excavator", ownership: "RENTED", dailyRentalCost: 380 },
+  });
+  await prisma.equipmentAssignment.create({
+    data: {
+      equipmentId: miniExcavator.id,
+      jobId: sunriseDuplex.id,
+      startDate: addDays(projectStart, 0),
+      endDate: addDays(projectStart, 0),
+      actualPickupDate: addDays(projectStart, 0),
+      actualReturnDate: addDays(projectStart, 0),
+    },
+  });
+  const pumpTruck = await prisma.equipment.create({
+    data: { companyId: company.id, name: "Small line pump", type: "Pump truck", ownership: "RENTED", dailyRentalCost: 420 },
+  });
+  await prisma.equipmentAssignment.create({
+    data: {
+      equipmentId: pumpTruck.id,
+      jobId: sunriseDuplex.id,
+      startDate: addDays(projectStart, 2),
+      endDate: projectEnd,
+      actualPickupDate: addDays(projectStart, 2),
+    },
+  });
+
+  await prisma.subcontractorCost.create({
+    data: {
+      jobId: sunriseDuplex.id,
+      vendor: "Blue Line Concrete Pumping",
+      description: "Pump operator, slab pours",
+      committedAmount: 2800,
+      actualAmount: 1400,
+      status: "INVOICED",
+    },
+  });
+
   // --- A second, unrelated company — proves cross-tenant isolation works,
   // not just that a companyId column exists. Its admin should never be able
   // to see any of the CrewSync Demo GC data seeded above, and vice versa. ---
@@ -450,6 +688,7 @@ async function main() {
   const secondCoJob = await prisma.job.create({
     data: {
       companyId: otherCompany.id,
+      jobNumber: `${SEED_YEAR}-001`,
       title: "Lakeside Offices — Tenant Buildout",
       description: "Interior buildout for suite 300",
       address: "40 Lakeside Blvd, Suite 300",

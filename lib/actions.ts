@@ -4,7 +4,6 @@ import { scopedPrisma } from "@/lib/tenant";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole, requireSession } from "@/lib/session";
-import { generateChecklistForStage } from "@/lib/checklist";
 import { logAudit } from "@/lib/audit";
 
 function str(formData: FormData, key: string): string | undefined {
@@ -66,39 +65,6 @@ export async function createCustomer(formData: FormData) {
 
   revalidatePath("/customers");
   redirect("/customers");
-}
-
-export async function createJob(formData: FormData) {
-  const session = await requireRole("ADMIN", "PM");
-  const prisma = scopedPrisma(session.companyId);
-  const title = str(formData, "title");
-  if (!title) throw new Error("Title is required");
-
-  const scheduledAtRaw = str(formData, "scheduledAt");
-  const workerIds = formData.getAll("workerIds").filter(
-    (v): v is string => typeof v === "string" && v !== ""
-  );
-
-  const job = await prisma.job.create({
-    data: {
-      companyId: session.companyId,
-      title,
-      description: str(formData, "description"),
-      address: str(formData, "address"),
-      customerId: str(formData, "customerId"),
-      scheduledAt: scheduledAtRaw ? new Date(scheduledAtRaw) : undefined,
-      assignments: {
-        create: workerIds.map((workerId) => ({ workerId })),
-      },
-    },
-  });
-
-  // Automation: a newly-created ("awarded") job starts in PRECON — generate its checklist.
-  await generateChecklistForStage(prisma, job.id, "PRECON");
-
-  revalidatePath("/jobs");
-  revalidatePath("/");
-  redirect(`/jobs/${job.id}`);
 }
 
 export async function updateJobStatus(jobId: string, status: string) {

@@ -7,6 +7,8 @@ import { requireSession } from "@/lib/session";
 import { canManageJobs, canManageEstimates } from "@/lib/auth";
 import { getJobCosting } from "@/lib/job-costing";
 import { getBillingReadiness } from "@/lib/billing";
+import { getProjectHealth } from "@/lib/project-health";
+import { ALERT_TYPE_LABEL } from "@/lib/alerts";
 import { formatMoney, formatDate, PROJECT_STAGE_LABEL, COST_CATEGORY_LABEL } from "@/lib/format";
 import { setJobBudget } from "@/lib/command-center-actions";
 import { createSubcontractorCost, updateSubcontractorCost } from "@/lib/subcontractor-actions";
@@ -19,6 +21,33 @@ import AskAiPanel from "./ask-ai";
 const STATUSES = ["SCHEDULED", "IN_PROGRESS", "COMPLETED", "CANCELLED"] as const;
 const BUDGET_CATEGORIES = ["LABOR", "MATERIAL", "EQUIPMENT", "SUBCONTRACTOR", "OTHER"] as const;
 const STAGES = ["PRECON", "MOBILIZATION", "ACTIVE", "PUNCH_LIST", "CLOSEOUT", "COMPLETE"] as const;
+
+const STAGE_BADGE_CLASSES: Record<string, string> = {
+  PRECON: "bg-slate-100 text-slate-700",
+  MOBILIZATION: "bg-blue-100 text-blue-700",
+  ACTIVE: "bg-green-100 text-green-700",
+  PUNCH_LIST: "bg-amber-100 text-amber-700",
+  CLOSEOUT: "bg-purple-100 text-purple-700",
+  COMPLETE: "bg-slate-200 text-slate-700",
+};
+
+const SEVERITY_CLASSES: Record<string, string> = {
+  critical: "bg-red-100 text-red-700",
+  warning: "bg-amber-100 text-amber-700",
+};
+
+function pct(value: number | null, digits = 0): string {
+  return value !== null ? `${(value * 100).toFixed(digits)}%` : "—";
+}
+
+function Stat({ label, value, danger }: { label: string; value: string; danger?: boolean }) {
+  return (
+    <div>
+      <div className="text-slate-500 text-xs">{label}</div>
+      <div className={`font-medium ${danger ? "text-red-600" : ""}`}>{value}</div>
+    </div>
+  );
+}
 
 export default async function JobDetailPage({
   params,
@@ -43,7 +72,7 @@ export default async function JobDetailPage({
   });
   if (!job) notFound();
 
-  const [jobCostCodes, costing, billing] = await Promise.all([
+  const [jobCostCodes, costing, billing, health] = await Promise.all([
     prisma.jobCostCode.findMany({
       where: { jobId: id },
       include: { costCode: true, entries: { orderBy: { date: "desc" } } },
@@ -51,6 +80,7 @@ export default async function JobDetailPage({
     }),
     getJobCosting(session.companyId, id),
     getBillingReadiness(session.companyId, id),
+    getProjectHealth(session.companyId, id),
   ]);
   const [subcontractorCosts, checklistItems] = await Promise.all([
     prisma.subcontractorCost.findMany({ where: { jobId: id }, orderBy: { createdAt: "desc" } }),
@@ -59,13 +89,6 @@ export default async function JobDetailPage({
 
   const canManage = canManageJobs(session.role);
   const canEstimate = canManageEstimates(session.role);
-
-  const totalEstQty = jobCostCodes.reduce((s, j) => s + j.estimatedQty, 0);
-  const totalActQty = jobCostCodes.reduce(
-    (s, j) => s + computeProgress(j.estimatedQty, j.estimatedHours, j.entries).actualQty,
-    0
-  );
-  const scheduleProgressPct = totalEstQty > 0 ? Math.min(1, totalActQty / totalEstQty) : null;
 
   async function setStatus(formData: FormData) {
     "use server";
@@ -80,22 +103,14 @@ export default async function JobDetailPage({
     await deleteJob(job!.id);
   }
 
+  const laborVarianceLabel = `${health.laborHoursVariance >= 0 ? "+" : ""}${health.laborHoursVariance.toFixed(0)} hrs${
+    health.laborHoursVariancePct !== null ? ` (${health.laborHoursVariancePct >= 0 ? "+" : ""}${(health.laborHoursVariancePct * 100).toFixed(0)}%)` : ""
+  }`;
+  const failingBillingChecks = health.billingReadiness.checks.filter((c) => !c.ok).length;
+  const criticalExceptions = health.exceptions.filter((e) => e.severity === "critical").length;
+
   return (
     <div className="max-w-4xl space-y-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">{job.title}</h1>
-          {job.customer && (
-            <p className="text-slate-500 text-sm mt-1">For {job.customer.name}</p>
-          )}
-        </div>
-        {canManage && (
-          <Link href={`/jobs/${job.id}/command-center/edit`} className="text-sm text-blue-600 hover:underline">
-            Edit command center
-          </Link>
-        )}
-      </div>
-
       {accountingPush && (
         <div className="max-w-2xl text-sm bg-green-50 border border-green-200 text-green-800 rounded-md px-4 py-3">
           Pushed to {accountingPush}. {pushResult}
@@ -113,45 +128,119 @@ export default async function JobDetailPage({
         </div>
       )}
 
-      {/* Command Center summary */}
-      <div className="bg-white border rounded-lg p-6 grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
-        <div>
-          <div className="text-slate-500">Stage</div>
-          <div className="font-medium">{PROJECT_STAGE_LABEL[job.stage]}</div>
-        </div>
-        <div>
-          <div className="text-slate-500">Division</div>
-          <div className="font-medium">{job.division?.name ?? "—"}</div>
-        </div>
-        <div>
-          <div className="text-slate-500">Contract value</div>
-          <div className="font-medium">{formatMoney(costing.contractValue)}</div>
-        </div>
-        <div>
-          <div className="text-slate-500">PM</div>
-          <div className="font-medium">{job.pm?.name ?? "—"}</div>
-        </div>
-        <div>
-          <div className="text-slate-500">Foreman</div>
-          <div className="font-medium">{job.foreman?.name ?? "—"}</div>
-        </div>
-        <div>
-          <div className="text-slate-500">Target start</div>
-          <div className="font-medium">{formatDate(job.targetStartDate)}</div>
-        </div>
-        <div>
-          <div className="text-slate-500">Target finish</div>
-          <div className="font-medium">{formatDate(job.targetEndDate)}</div>
-        </div>
-        <div>
-          <div className="text-slate-500">Schedule progress</div>
-          <div className="font-medium">
-            {scheduleProgressPct !== null ? `${(scheduleProgressPct * 100).toFixed(0)}%` : "—"}
+      {/* Command Center — everything needed to understand project health at a glance */}
+      <div className="bg-white border rounded-lg p-6 space-y-5">
+        <div className="flex items-start justify-between flex-wrap gap-3">
+          <div>
+            <div className="text-xs text-slate-400 font-medium">{health.jobNumber}</div>
+            <h1 className="text-2xl font-semibold">{health.title}</h1>
+            <p className="text-slate-500 text-sm mt-1">
+              {health.customerName ?? "No customer"}
+              {health.location ? ` · ${health.location}` : ""}
+              {job.division ? ` · ${job.division.name}` : ""}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${STAGE_BADGE_CLASSES[health.stage]}`}>
+              {PROJECT_STAGE_LABEL[health.stage]}
+            </span>
+            {canManage && (
+              <Link href={`/jobs/${job.id}/command-center/edit`} className="text-sm text-blue-600 hover:underline">
+                Edit
+              </Link>
+            )}
           </div>
         </div>
-        <div>
-          <div className="text-slate-500">Billed to date</div>
-          <div className="font-medium">{formatMoney(costing.billedAmount)}</div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 text-sm border-t pt-4">
+          <Stat label="PM" value={health.pmName ?? "—"} />
+          <Stat label="Foreman" value={health.foremanName ?? "—"} />
+          <Stat label="Crew" value={health.crew.length > 0 ? health.crew.join(", ") : "—"} />
+          <Stat label="Start date" value={formatDate(health.targetStartDate)} />
+          <Stat label="Planned completion" value={formatDate(health.targetEndDate)} />
+          <Stat
+            label="Current day"
+            value={health.currentDay && health.plannedDurationDays ? `Day ${health.currentDay} of ${health.plannedDurationDays}` : "—"}
+          />
+          <Stat label="Schedule %" value={pct(health.schedulePct)} />
+          <Stat label="Production %" value={pct(health.productionPct)} />
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 text-sm border-t pt-4">
+          <Stat label="Est. labor hours" value={health.estimatedLaborHours.toFixed(0)} />
+          <Stat label="Actual labor hours" value={health.actualLaborHours.toFixed(0)} />
+          <Stat
+            label="Labor variance"
+            value={laborVarianceLabel}
+            danger={health.laborHoursVariancePct !== null && health.laborHoursVariancePct > 0.05}
+          />
+          <Stat label="Est. labor cost" value={formatMoney(health.estimatedLaborCost)} />
+          <Stat label="Actual labor cost" value={formatMoney(health.actualLaborCost)} />
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 text-sm border-t pt-4">
+          <Stat label="Material budget" value={formatMoney(health.materialBudget)} />
+          <Stat label="Material actual" value={formatMoney(health.materialActual)} />
+          <Stat label="Equipment budget" value={formatMoney(health.equipmentBudget)} />
+          <Stat label="Equipment actual" value={formatMoney(health.equipmentActual)} />
+          <Stat label="Subcontractor budget" value={formatMoney(health.subcontractorBudget)} />
+          <Stat label="Subcontractor actual" value={formatMoney(health.subcontractorActual)} />
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 text-sm border-t pt-4">
+          <Stat label="Contract value" value={formatMoney(health.originalContractValue)} />
+          <Stat
+            label="Approved change orders"
+            value={`${health.approvedChangeOrderCount} (${formatMoney(health.approvedChangeOrderRevenue)})`}
+          />
+          <Stat label="Current contract value" value={formatMoney(health.currentContractValue)} />
+          <Stat label="Projected final cost" value={formatMoney(health.projectedFinalCost)} />
+          <Stat
+            label="Projected gross profit"
+            value={formatMoney(health.projectedGrossProfit)}
+            danger={health.projectedGrossProfit < 0}
+          />
+          <Stat
+            label="Projected margin"
+            value={pct(health.projectedMarginPct, 1)}
+            danger={(health.projectedMarginPct ?? 1) < 0.1}
+          />
+        </div>
+
+        <div className="border-t pt-4 flex flex-wrap gap-8">
+          <div>
+            <div className="text-slate-500 text-xs mb-1">Billing readiness</div>
+            <span
+              className={`text-xs px-2 py-1 rounded-full font-medium ${
+                health.billingReadiness.ready ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"
+              }`}
+            >
+              {health.billingReadiness.ready ? "Ready to invoice" : `Not ready — ${failingBillingChecks} open item${failingBillingChecks === 1 ? "" : "s"}`}
+            </span>
+          </div>
+          <div className="flex-1 min-w-[240px]">
+            <div className="text-slate-500 text-xs mb-1">
+              Current exceptions ({health.exceptions.length}
+              {criticalExceptions > 0 ? `, ${criticalExceptions} critical` : ""})
+            </div>
+            {health.exceptions.length === 0 ? (
+              <span className="text-sm text-green-700">None — this project is clean</span>
+            ) : (
+              <ul className="space-y-1.5">
+                {health.exceptions.slice(0, 4).map((e, i) => (
+                  <li key={i} className="text-sm flex items-start gap-2">
+                    <span className={`text-xs px-1.5 py-0.5 rounded-full whitespace-nowrap flex-shrink-0 ${SEVERITY_CLASSES[e.severity]}`}>
+                      {ALERT_TYPE_LABEL[e.type]}
+                    </span>
+                    <span className="text-slate-600">{e.message}</span>
+                  </li>
+                ))}
+                {health.exceptions.length > 4 && (
+                  <li className="text-xs text-slate-400">+{health.exceptions.length - 4} more</li>
+                )}
+              </ul>
+            )}
+          </div>
         </div>
       </div>
 

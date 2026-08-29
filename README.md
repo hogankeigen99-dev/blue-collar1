@@ -5,6 +5,62 @@ and — the core of it — real-time self-perform labor productivity: daily
 field hours and quantity logged against a job's estimate, compared back
 same-day instead of on the next payroll cycle.
 
+## Primary use case: the 5–10 day, 1–2 crew small project
+
+CrewSync's current focus is a single workflow, built to work correctly end
+to end rather than sketch a lot of separate features: **taking a small
+(5–10 day, 1–2 crew) project from award through closeout as one operational
+home**, with no duplicate data entry between the field, PM, scheduling,
+materials/equipment, job costing, change management, billing readiness, and
+accounting.
+
+- **Award a project in one pass** (`/jobs/new`, `lib/award-actions.ts`):
+  customer, location, contract value, budget by category, cost codes, PM,
+  foreman, crew, start/target-completion dates, and any known initial
+  materials/equipment/subcontractors are all captured in a single form. That
+  one submit auto-generates the project's `jobNumber`, its PRECON startup
+  checklist (`lib/checklist.ts`), and the crew's day-by-day schedule for the
+  project's date range (`ScheduleAssignment` rows) alongside their formal
+  job assignment — so the crew and the schedule board start in sync instead
+  of being entered twice and drifting apart (the gap the `CREW_CONFLICT`
+  alert exists to catch).
+- **The job Command Center is the single operational home**
+  (`/jobs/[id]`, data from `lib/project-health.ts`): project number,
+  customer, location, contract value, PM, foreman, crew, current stage,
+  start/planned-completion dates, current day of project, **Schedule %**
+  (time elapsed ÷ planned duration) and **Production %** (actual quantity ÷
+  estimated quantity — a genuinely different number, computed and labeled
+  separately, not the same figure under two names), estimated/actual labor
+  hours and cost with variance, material/equipment/subcontractor
+  budget-vs-actual, approved change orders, current contract value,
+  projected final cost/gross profit/margin, billing readiness, and current
+  exceptions — all on one page, meant to be readable in about 10 seconds.
+- **Field input drives everything downstream automatically.** A foreman
+  logging a daily report or production entry (`/jobs/[id]/log`,
+  `/jobs/[id]/daily-reports/new`) is the *only* place that data is entered —
+  actual labor hours/cost, schedule %, production %, and exceptions on the
+  Command Center all recompute from it live. Nothing is re-typed into a
+  separate "job cost" screen.
+- **Exceptions are computed, not manually flagged** (`lib/alerts.ts`):
+  labor overruns, schedule risk, missing field reports, material risk, crew
+  conflicts, unapproved change work, billing blockers, and margin risk are
+  all derived from the same underlying field/cost data — company-wide at
+  `/alerts`, or scoped to one job (`getJobAlerts`) on its Command Center.
+- **A realistic demo project** is included in the seed data (`prisma/seed.ts`
+  — "Sunrise Duplex — Foundation & Slab"): a 2-3 person crew, 7-day project
+  seeded mid-stream (today is day 5 of 7) with real daily reports, production
+  entries trending over the labor estimate, an overdue material order, and a
+  field-flagged change condition — so a fresh seed immediately shows a live
+  labor overrun, a material risk, and an unapproved change work exception on
+  the Command Center, not an empty or hand-scripted screen.
+
+This workflow was validated end to end with a live Playwright run through
+the real UI: award → setup → schedule → mobilize → daily field updates →
+production → job cost auto-update → exception detection → change order
+(field-flagged → priced → approved, contract value updates) → materials
+(request → received) → completion → billing ready → invoice → closeout,
+with no page errors and no duplicate data entry required at any step.
+
 ## Stack
 
 - [Next.js 16](https://nextjs.org/) (App Router, Server Actions)
@@ -20,7 +76,8 @@ same-day instead of on the next payroll cycle.
   daily production and updating job status is open to any signed-in role —
   enforced server-side in the Server Actions themselves, not just hidden in
   the UI.
-- **Jobs**: create, view, list, update status, assign one or more workers, delete
+- **Jobs**: award in one pass (`/jobs/new` — see "Primary use case" above),
+  view, list, update status, delete
 - **Workers**: add crew members with role/contact info
 - **Customers**: add customer records with address/contact info
 - **Crew schedule** (`/schedule`): a weekly grid — workers as rows, days as
@@ -56,10 +113,13 @@ same-day instead of on the next payroll cycle.
     the company's own actuals instead of bidding from gut feel or generic
     unit-cost books.
 
-- **Job Command Center** (`/jobs/[id]`): every job's operational home —
-  contract value, PM, foreman, target dates, project stage, schedule progress
-  (derived from cost-code productivity), and links out to every sub-workflow
-  below, all on one page.
+- **Job Command Center** (`/jobs/[id]`): every job's operational home — see
+  "Primary use case" above for the full field list (project number, contract
+  value, PM/foreman/crew, stage, dates, current day of project, Schedule %
+  vs. Production %, labor hours/cost with variance, cost-category
+  budget-vs-actual, change orders, projected final cost/profit/margin,
+  billing readiness, and current exceptions) — plus links out to every
+  sub-workflow below.
 - **Full job costing**: estimated vs. committed vs. actual vs. projected
   dollars per category (labor, material, equipment, subcontractor, other),
   rolled up into projected final cost, gross profit, and margin. Labor is

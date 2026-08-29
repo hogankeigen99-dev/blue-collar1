@@ -264,6 +264,13 @@ model Job {
   companyId   String
   division    Division? @relation(fields: [divisionId], references: [id])
   divisionId  String?
+  // Human-readable project number ("2026-014") — the PM-facing identifier
+  // instead of the opaque cuid. Auto-generated at award time
+  // (lib/award-actions.ts): current year + next sequence for that
+  // company+year, derived from the current max rather than a separate
+  // sequence table — fine at this app's actual concurrency (one project
+  // awarded at a time), not safe under concurrent creates.
+  jobNumber   String
   title       String
   description String?
   status      JobStatus @default(SCHEDULED)
@@ -299,6 +306,7 @@ model Job {
   checklistItems       JobChecklistItem[]
   documents            Document[]
 
+  @@unique([companyId, jobNumber])
   @@index([companyId])
 }
 
