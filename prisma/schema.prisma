@@ -373,7 +373,7 @@ model OpportunityCostCode {
   id             String      @id @default(cuid())
   opportunity    Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
   opportunityId  String
-  costCode       CostCode    @relation(fields: [costCodeId], references: [id])
+  costCode       CostCode    @relation(fields: [costCodeId], references: [id], onDelete: Cascade)
   costCodeId     String
   estimatedQty   Float
   estimatedHours Float
@@ -594,7 +594,7 @@ model JobCostCode {
   id             String            @id @default(cuid())
   job            Job               @relation(fields: [jobId], references: [id], onDelete: Cascade)
   jobId          String
-  costCode       CostCode          @relation(fields: [costCodeId], references: [id])
+  costCode       CostCode          @relation(fields: [costCodeId], references: [id], onDelete: Cascade)
   costCodeId     String
   estimatedQty   Float
   estimatedHours Float
@@ -616,7 +616,7 @@ model JobCostCode {
 // row rather than duplicating it.
 model CostCodeBenchmark {
   id              String   @id @default(cuid())
-  costCode        CostCode @relation(fields: [costCodeId], references: [id])
+  costCode        CostCode @relation(fields: [costCodeId], references: [id], onDelete: Cascade)
   costCodeId      String
   job             Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
   jobId           String
