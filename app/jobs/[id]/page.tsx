@@ -537,7 +537,7 @@ export default async function JobDetailPage({
         </div>
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-3" id="labor-productivity">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-lg font-medium">Labor productivity</h2>

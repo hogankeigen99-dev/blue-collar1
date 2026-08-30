@@ -29,7 +29,7 @@ export async function getWalkthroughSteps(companyId: string): Promise<Walkthroug
     { label: "Foreman Daily Report", href: `/jobs/${job.id}/daily-reports/new`, blurb: "Switch to Foreman, then submit today's report: Concrete slab on grade, 72 hours, 64 CY installed." },
     { label: "Labor Exception", href: `/jobs/${job.id}`, blurb: "Back on the Project page — the concrete line now shows real actual-vs-estimate variance from that one entry." },
     { label: "PM Daily Command", href: "/today", blurb: "Switch to Project Manager — the labor productivity exception surfaces here automatically, with why/impact/action/owner/due." },
-    { label: "Job Cost", href: `/jobs/${job.id}/cost-codes`, blurb: "The cost code detail behind the exception — estimated vs. actual hours and quantity, computed live." },
+    { label: "Job Cost", href: `/jobs/${job.id}#labor-productivity`, blurb: "The cost code detail behind the exception — estimated vs. actual hours and quantity, computed live." },
     { label: "Change Order", href: `/jobs/${job.id}/change-orders`, blurb: "Price and approve the footing change order already flagged from the field — watch the contract/SOV update." },
     ...(bidPackage
       ? [{ label: "SubBid", href: `/jobs/${job.id}/bid-packages/${bidPackage.id}`, blurb: "Select the structural steel winner — not just the lowest number, since one bid excludes real scope." }]

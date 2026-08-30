@@ -67,6 +67,34 @@ test.describe("Demo mode", () => {
     await page.click('button:has-text("Exit Walkthrough")');
     expect((await page.locator("body").innerText()).toLowerCase()).not.toContain("step 1 of");
   });
+
+  test("every walkthrough step lands on a real, non-blank, non-404 page", async ({ page }) => {
+    await login(page, "admin");
+    await page.goto("/");
+    await page.click('button:has-text("Walkthrough")');
+    await page.waitForLoadState("networkidle");
+
+    const stepCountText = await page.locator("body").innerText();
+    const totalSteps = Number(stepCountText.match(/step \d+ of (\d+)/i)?.[1]);
+    expect(totalSteps).toBeGreaterThan(0);
+
+    for (let i = 1; i <= totalSteps; i++) {
+      // CSS text-transform: uppercase on the step-count span means
+      // innerText() reflects the rendered (uppercased) text, not the
+      // literal JSX string — compare lowercased, same gotcha documented
+      // in the "Enter once" tests above.
+      const bodyText = (await page.locator("body").innerText()).toLowerCase();
+      // A blank/404 page fails both of these — real content plus a step
+      // count that actually matches where the panel thinks we are.
+      expect(bodyText, `step ${i}: page must not 404`).not.toContain("could not be found");
+      expect(bodyText, `step ${i}: panel must report this step number`).toMatch(new RegExp(`step ${i} of ${totalSteps}`));
+      expect(bodyText.trim().length, `step ${i}: page must render real content`).toBeGreaterThan(200);
+      if (i < totalSteps) {
+        await page.click('button:has-text("Next")');
+        await page.waitForLoadState("networkidle");
+      }
+    }
+  });
 });
 
 test.describe("Enter once, CrewSync handles the rest", () => {
