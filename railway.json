@@ -5,7 +5,7 @@
     "buildCommand": "npm run build"
   },
   "deploy": {
-    "startCommand": "npm run db:deploy && node -e \"const{PrismaClient}=require('@prisma/client');const p=new PrismaClient();p.company.deleteMany().then(()=>p.\\$disconnect())\" && npm run db:seed && npm start",
+    "startCommand": "npm run db:deploy && npm start",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 3
   }
