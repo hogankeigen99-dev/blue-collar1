@@ -2412,6 +2412,43 @@ export async function seedDemoCompany() {
     },
   });
   await seedContract(fairgateMetals.id, 38000, { retainagePct: 5, executedDate: addDays(today, -5) });
+
+  // ============================================================
+  // Small Project Live Flow — the dedicated Award-to-Closeout demo.
+  // Deliberately NOT awarded: this stays a real, undecided SUBMITTED bid so
+  // the live walkthrough's first move — mark it WON — is a genuine
+  // conversion through the real Award form (lib/award-actions.ts), which
+  // prefills customer/scope/estimate/cost codes/contract value from this
+  // opportunity automatically. Its concrete line is estimated at exactly
+  // 0.85 hrs/CY (64 CY / 54.4 hrs) so a single live Daily Report of 72
+  // hours / 64 CY lands at exactly 1.125 hrs/CY — real division, not a
+  // scripted number.
+  // ============================================================
+  const brightside = await prisma.customer.create({
+    data: { companyId: company.id, name: "Brightside Automotive LLC", address: "2200 Brightside Ave" },
+  });
+  await prisma.opportunity.create({
+    data: {
+      companyId: company.id,
+      bidNumber: `${SEED_YEAR}-B009`,
+      title: "Brightside Automotive — Service Bay Slab & Footings",
+      customerId: brightside.id,
+      source: "Referral",
+      projectType: "Concrete flatwork",
+      estimatedValue: 195000,
+      probability: 75,
+      bidDueDate: addDays(today, -2),
+      assignedToUserId: priya.id,
+      stage: "SUBMITTED",
+    },
+  });
+  const brightsideOpp = await prisma.opportunity.findFirstOrThrow({ where: { bidNumber: `${SEED_YEAR}-B009` } });
+  await prisma.opportunityCostCode.createMany({
+    data: [
+      { opportunityId: brightsideOpp.id, costCodeId: excavation.id, estimatedQty: 25, estimatedHours: 18 },
+      { opportunityId: brightsideOpp.id, costCodeId: concreteSlab.id, estimatedQty: 64, estimatedHours: 54.4 },
+    ],
+  });
 }
 
 /** A second, unrelated company — proves cross-tenant isolation works, not

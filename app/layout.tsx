@@ -8,8 +8,10 @@ import { prisma } from "@/lib/prisma";
 import { switchDemoRole, resetDemo, isDemoCompany } from "@/lib/demo-actions";
 import { DEMO_PERSONAS } from "@/lib/demo-personas";
 import { getWalkthroughSteps } from "@/lib/walkthrough";
+import { getSmallProjectFlowSteps } from "@/lib/small-project-flow";
 import { ResetDemoButton } from "./reset-demo-button";
 import { WalkthroughLauncher } from "./walkthrough-panel";
+import { SmallProjectLauncher } from "./small-project-panel";
 import "./globals.css";
 
 // Lexend for headings/brand (distinctive, built for reading clarity — a
@@ -45,6 +47,7 @@ export default async function RootLayout({
   const isForeman = session?.role === "FOREMAN";
   const isDemo = session ? await isDemoCompany(session.companyId) : false;
   const walkthroughSteps = isDemo && session ? await getWalkthroughSteps(session.companyId) : null;
+  const smallProjectSteps = isDemo && session ? await getSmallProjectFlowSteps(session.companyId) : null;
 
   return (
     <html lang="en" className={`${displayFont.variable} ${bodyFont.variable}`}>
@@ -151,6 +154,7 @@ export default async function RootLayout({
                   })}
                 </form>
                 <div className="ml-auto flex items-center gap-2">
+                  {smallProjectSteps && smallProjectSteps.length > 0 && <SmallProjectLauncher steps={smallProjectSteps} />}
                   {walkthroughSteps && walkthroughSteps.length > 0 && <WalkthroughLauncher steps={walkthroughSteps} />}
                   <ResetDemoButton action={resetDemo} />
                 </div>

@@ -12,6 +12,7 @@ import { ALERT_TYPE_LABEL } from "@/lib/alerts";
 import { formatMoney, formatDate, PROJECT_STAGE_LABEL, COST_CATEGORY_LABEL } from "@/lib/format";
 import { setJobBudget } from "@/lib/command-center-actions";
 import { toggleChecklistItem, addChecklistItem } from "@/lib/checklist-actions";
+import { assignCrewToJob } from "@/lib/schedule-actions";
 import { pushJobToAccountingConnector } from "@/lib/accounting/sage-export-actions";
 import { getSageConnection } from "@/lib/accounting/sage-tokens";
 import { isAiConfigured } from "@/lib/ai/client";
@@ -71,7 +72,7 @@ export default async function JobDetailPage({
   });
   if (!job) notFound();
 
-  const [jobCostCodes, costing, billing, health] = await Promise.all([
+  const [jobCostCodes, costing, billing, health, availableWorkers] = await Promise.all([
     prisma.jobCostCode.findMany({
       where: { jobId: id },
       include: { costCode: true, entries: { orderBy: { date: "desc" } } },
@@ -80,7 +81,10 @@ export default async function JobDetailPage({
     getJobCosting(session.companyId, id),
     getBillingReadiness(session.companyId, id),
     getProjectHealth(session.companyId, id),
+    prisma.worker.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
   ]);
+  const assignedWorkerIds = new Set(job.assignments.map((a) => a.workerId));
+  const unassignedWorkers = availableWorkers.filter((w) => !assignedWorkerIds.has(w.id));
   const checklistItems = await prisma.jobChecklistItem.findMany({ where: { jobId: id }, orderBy: { createdAt: "asc" } });
 
   const canManage = canManageJobs(session.role);
@@ -498,10 +502,10 @@ export default async function JobDetailPage({
             <p className="text-sm">{new Date(job.scheduledAt).toLocaleString()}</p>
           </div>
         )}
-        <div>
+        <div id="crew">
           <div className="text-sm font-medium text-slate-500">Assigned workers</div>
           {job.assignments.length === 0 ? (
-            <p className="text-sm text-slate-500">None assigned</p>
+            <p className="text-sm text-red-600">None assigned — crew not staffed yet</p>
           ) : (
             <ul className="text-sm list-disc list-inside">
               {job.assignments.map((a) => (
@@ -510,6 +514,39 @@ export default async function JobDetailPage({
                 </li>
               ))}
             </ul>
+          )}
+          {canManage && unassignedWorkers.length > 0 && (
+            <form action={assignCrewToJob} className="mt-2 space-y-2 border rounded-md p-3 bg-slate-50">
+              <input type="hidden" name="jobId" value={job.id} />
+              <div className="text-xs font-medium text-slate-500">Assign crew</div>
+              <div className="flex flex-wrap gap-x-3 gap-y-1">
+                {unassignedWorkers.map((w) => (
+                  <label key={w.id} className="flex items-center gap-1 text-sm">
+                    <input type="checkbox" name="workerIds" value={w.id} />
+                    {w.name}
+                  </label>
+                ))}
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  name="startDate"
+                  type="date"
+                  required
+                  defaultValue={job.targetStartDate ? job.targetStartDate.toISOString().slice(0, 10) : undefined}
+                  className="border rounded-md px-2 py-1 text-sm"
+                />
+                <span className="text-xs text-slate-400">through</span>
+                <input
+                  name="endDate"
+                  type="date"
+                  defaultValue={job.targetEndDate ? job.targetEndDate.toISOString().slice(0, 10) : undefined}
+                  className="border rounded-md px-2 py-1 text-sm"
+                />
+                <button type="submit" className="bg-slate-900 text-white text-xs px-3 py-1.5 rounded-md hover:bg-slate-700">
+                  Assign
+                </button>
+              </div>
+            </form>
           )}
         </div>
 

@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/session";
 import { parseDateKey, dateKey, addDays } from "@/lib/schedule";
+import { logAudit } from "@/lib/audit";
 
 /** Assigns a worker to a job for one day, or a range through `throughDate`. Collects
  * non-blocking warnings (marked-unavailable days, displacing an existing different-job
@@ -79,4 +80,57 @@ export async function setScheduleAssignment(formData: FormData) {
   if (warnings.length > 0) params.set("warning", warnings.join("; "));
   const qs = params.toString();
   redirect(qs ? `/schedule?${qs}` : "/schedule");
+}
+
+/** Staffs a crew onto an already-awarded job — the one real gap the
+ * consolidated Award flow (lib/award-actions.ts) doesn't cover: a job
+ * awarded without its crew picked yet (a common real sequence — the
+ * estimator/PM confirms scope and price before staffing is finalized)
+ * previously had no way to add crew afterward at all. Creates both the
+ * formal JobAssignment (crew membership) and day-by-day ScheduleAssignment
+ * rows together, same as Award does, so this never produces the
+ * CREW_CONFLICT alert's "scheduled but not formally assigned" gap. */
+export async function assignCrewToJob(formData: FormData) {
+  const session = await requireRole("ADMIN", "PM");
+  const prisma = scopedPrisma(session.companyId);
+
+  const jobId = String(formData.get("jobId") ?? "");
+  const workerIds = formData.getAll("workerIds").filter((v): v is string => typeof v === "string" && v.length > 0);
+  const startDateRaw = String(formData.get("startDate") ?? "");
+  const endDateRaw = String(formData.get("endDate") ?? "");
+  if (!jobId || workerIds.length === 0 || !startDateRaw) {
+    throw new Error("Job, at least one worker, and a start date are required");
+  }
+
+  const job = await prisma.job.findFirstOrThrow({ where: { id: jobId } });
+  await prisma.worker.findMany({ where: { id: { in: workerIds } } }).then((found) => {
+    if (found.length !== workerIds.length) throw new Error("One or more workers not found");
+  });
+
+  const startDate = parseDateKey(startDateRaw);
+  const endDate = endDateRaw ? parseDateKey(endDateRaw) : startDate;
+  const dates: Date[] = [];
+  for (let d = startDate; d.getTime() <= endDate.getTime(); d = addDays(d, 1)) {
+    dates.push(d);
+  }
+
+  await prisma.jobAssignment.createMany({
+    data: workerIds.map((workerId) => ({ jobId, workerId })),
+    skipDuplicates: true,
+  });
+  await prisma.scheduleAssignment.createMany({
+    data: workerIds.flatMap((workerId) => dates.map((date) => ({ workerId, jobId, date }))),
+    skipDuplicates: true,
+  });
+
+  await logAudit(session, {
+    action: "job.crew_assigned",
+    entityType: "Job",
+    entityId: jobId,
+    jobId,
+    detail: `${workerIds.length} worker(s) staffed, ${dateKey(startDate)} through ${dateKey(endDate)}`,
+  });
+
+  revalidatePath(`/jobs/${jobId}`);
+  redirect(`/jobs/${job.id}`);
 }
