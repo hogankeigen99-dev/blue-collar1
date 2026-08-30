@@ -296,6 +296,7 @@ model Vendor {
   createdAt        DateTime          @default(now())
   materialRequests MaterialRequest[]
   subcontracts     Subcontract[]
+  subBids          SubBid[]
 
   @@unique([companyId, name])
   @@index([companyId])
@@ -434,6 +435,7 @@ model Job {
   materialRequests     MaterialRequest[]
   equipmentAssignments EquipmentAssignment[]
   subcontracts         Subcontract[]
+  bidPackages          BidPackage[]
   invoices             Invoice[]
   checklistItems       JobChecklistItem[]
   documents            Document[]
@@ -843,6 +845,64 @@ model Subcontract {
   coiExpirationDate DateTime?
   executedDate      DateTime?
   createdAt         DateTime                   @default(now())
+  // Set only when this Subcontract was created by selecting a winning
+  // SubBid (lib/subbid-actions.ts's selectSubBidWinner), the same
+  // created-artifact-points-back-to-its-origin shape as
+  // ContractLine.sourceChangeOrderId and MaterialRequest.sourceDailyReportId.
+  sourceSubBidId    String?                    @unique
+  sourceSubBid      SubBid?                    @relation(fields: [sourceSubBidId], references: [id])
+}
+
+// A scope of work put out to multiple subs for competing quotes, before a
+// Subcontract exists — bid leveling. Job-scoped only (post-Award), the same
+// scoping Vendor/Subcontract already use; deliberately not also reachable
+// from a pre-Award Opportunity.
+model BidPackage {
+  id        String           @id @default(cuid())
+  job       Job              @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  jobId     String
+  title     String
+  scope     String? // the scope of work every invited sub is quoting against
+  dueDate   DateTime?
+  status    BidPackageStatus @default(OPEN)
+  createdAt DateTime         @default(now())
+  bids      SubBid[]
+
+  @@index([jobId])
+}
+
+enum BidPackageStatus {
+  OPEN
+  AWARDED
+  CANCELLED
+}
+
+// One subcontractor's response to a BidPackage — invited, then (maybe) a
+// received quote with its own scope notes and exclusions, so bids can
+// actually be compared apples-to-apples rather than just by dollar amount.
+model SubBid {
+  id                   String       @id @default(cuid())
+  bidPackage           BidPackage   @relation(fields: [bidPackageId], references: [id], onDelete: Cascade)
+  bidPackageId         String
+  vendor               Vendor?      @relation(fields: [vendorId], references: [id])
+  vendorId             String?
+  amount               Float? // null until a quote is actually received
+  status               SubBidStatus @default(INVITED)
+  scopeNotes           String? // what this bid actually covers, in the sub's own words
+  exclusions           String? // explicitly NOT included — the thing that makes bids not comparable at face value
+  receivedDate         DateTime?
+  createdAt            DateTime     @default(now())
+  resultingSubcontract Subcontract?
+
+  @@index([bidPackageId])
+}
+
+enum SubBidStatus {
+  INVITED
+  RECEIVED
+  SELECTED
+  REJECTED
+  DECLINED
 }
 
 // Company-wide template: what checklist items get auto-generated when a job

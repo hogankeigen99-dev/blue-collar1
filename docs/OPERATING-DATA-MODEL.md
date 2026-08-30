@@ -259,10 +259,12 @@ the same shape before wiring a second consumer to it.
   being paid down — these are different facts, deliberately not merged
   into one status field.
 - **Created by:** `lib/subcontract-actions.ts`'s `createSubcontract`
-  (`/jobs/[id]/subcontracts/new`) directly, or by `lib/award-actions.ts`
-  for an initial subcontractor row entered at Award time (started
-  `EXECUTED` there — a committed cost entered at Award already implies an
-  agreed scope, not a draft).
+  (`/jobs/[id]/subcontracts/new`) directly, by `lib/award-actions.ts` for
+  an initial subcontractor row entered at Award time (started `EXECUTED`
+  there — a committed cost entered at Award already implies an agreed
+  scope, not a draft), or by `lib/subbid-actions.ts`'s
+  `selectSubBidWinner` when a bid-leveling comparison picks a winner (see
+  §Bid package / SubBid below) — starts `DRAFT`, `sourceSubBidId` set.
 - **Updated by:** `updateSubcontract` — billing status, agreement status,
   actual amount, COI expiration date. Executing it for the first time
   (`agreementStatus` → `EXECUTED`) records `executedDate` automatically;
@@ -274,6 +276,44 @@ the same shape before wiring a second consumer to it.
   is a real compliance/liability gap, not a decorative field. A `DRAFT`
   agreement (work hasn't started) or `CLOSED` one (already done) doesn't
   trigger it.
+- **Live or snapshot:** live.
+
+### Bid package / SubBid
+
+- **Source of truth:** `BidPackage` (a scope of work, job-scoped, post-Award
+  only — same scoping `Vendor`/`Subcontract` already use) + `SubBid` (one
+  invited sub's response). Deliberately two models, not one — a package
+  can have many competing bids, and "the scope everyone's quoting against"
+  is a fact about the package, not any single bid.
+- **`SubBid.amount` is nullable on purpose:** `INVITED` means no quote yet
+  (`amount: null`); recording a real number is what turns it `RECEIVED`.
+  The compare page sorts by amount ascending, not-yet-quoted last.
+- **Why `scopeNotes`/`exclusions` exist:** the whole point of bid leveling
+  is that the lowest number isn't automatically the right one if it
+  excludes work another bid includes — both fields are free text (a real
+  sub's quote is prose, not structured line items) surfaced right next to
+  the amount on the compare page.
+- **Created by:** `lib/subbid-actions.ts`'s `createBidPackage`
+  (`/jobs/[id]/bid-packages/new`) for the package; `inviteSubBid` for each
+  invited sub — `resolveOrCreateVendorId` found-or-creates the `Vendor`
+  inline, the same pattern every other "type a new vendor name" form in
+  the app already uses.
+- **Updated by:** `updateSubBid` — records a quote (`amount`, `scopeNotes`,
+  `exclusions`, `receivedDate`, defaulted to today the first time an amount
+  is saved) or marks a sub `DECLINED`.
+- **The automation:** `selectSubBidWinner` — one transaction: the chosen
+  `SubBid` → `SELECTED`; every other still-`INVITED`/`RECEIVED` bid on the
+  package → `REJECTED` (a package has exactly one winner); a real
+  `Subcontract` created with `vendorId`/`committedAmount` copied from the
+  winning bid and `sourceSubBidId` set (the created-artifact-points-back-
+  to-its-origin shape `ContractLine.sourceChangeOrderId` and
+  `MaterialRequest.sourceDailyReportId` already use); the package →
+  `AWARDED`. Guarded: only a `RECEIVED` bid with a real amount can be
+  selected, and a package can only be awarded once.
+- **Consumed by:** job costing — the resulting `Subcontract.committedAmount`
+  flows straight into `lib/job-costing.ts`'s existing `SUBCONTRACTOR`
+  category rollup, no new code there; global search (bid packages searched
+  by title, same as change orders/material requests).
 - **Live or snapshot:** live.
 
 ### Equipment assignment

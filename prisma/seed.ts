@@ -1617,6 +1617,97 @@ async function main() {
   // create from the bid line, no billing history yet.
   await seedContract(harborSiteworkJob.id, 340000, { retainagePct: 10, executedDate: addDays(today, -2) });
 
+  // Bid leveling, live on this same not-yet-mobilized job: one package
+  // already decided (mirrors exactly what lib/subbid-actions.ts's
+  // selectSubBidWinner does — SELECTED bid, REJECTED runner-up, a real
+  // Subcontract created with sourceSubBidId set), one still open so the
+  // demo shows a real in-progress comparison, not just the finished state.
+  const titanDemolition = await seedVendor(company.id, "Titan Demolition", { trade: "Demolition", contactInfo: "555-0901" });
+  const demoPackage = await prisma.bidPackage.create({
+    data: {
+      jobId: harborSiteworkJob.id,
+      title: "Demolition & site clearing",
+      scope: "Clear existing pad and curb work, demo to grade, haul debris off site before excavation mobilizes.",
+      dueDate: addDays(today, -8),
+      status: "AWARDED",
+    },
+  });
+  const demoWinningBid = await prisma.subBid.create({
+    data: {
+      bidPackageId: demoPackage.id,
+      vendorId: titanDemolition.id,
+      amount: 18500,
+      status: "SELECTED",
+      scopeNotes: "Full clearing to grade, debris hauled and disposed, no salvage credit",
+      receivedDate: addDays(today, -10),
+    },
+  });
+  await prisma.subBid.create({
+    data: {
+      bidPackageId: demoPackage.id,
+      vendorId: coastalPaving.id,
+      amount: 21000,
+      status: "REJECTED",
+      scopeNotes: "Clearing to grade only",
+      exclusions: "Excludes debris haul-off — billed separately by the ton",
+      receivedDate: addDays(today, -9),
+    },
+  });
+  await prisma.subcontract.create({
+    data: {
+      jobId: harborSiteworkJob.id,
+      vendorId: titanDemolition.id,
+      description: demoPackage.title,
+      committedAmount: 18500,
+      agreementStatus: "EXECUTED",
+      executedDate: addDays(today, -7),
+      retainagePct: 10,
+      sourceSubBidId: demoWinningBid.id,
+    },
+  });
+
+  const greenShield = await seedVendor(company.id, "Green Shield Erosion Control", { trade: "Erosion control", contactInfo: "555-0902" });
+  const bayviewSite = await seedVendor(company.id, "Bayview Site Services", { trade: "Site services", contactInfo: "555-0903" });
+  const erosionPackage = await prisma.bidPackage.create({
+    data: {
+      jobId: harborSiteworkJob.id,
+      title: "Erosion control & haul-off",
+      scope: "Silt fence and inlet protection for the full site perimeter, weekly inspection reports, haul-off of accumulated sediment.",
+      dueDate: addDays(today, 5),
+      status: "OPEN",
+    },
+  });
+  await prisma.subBid.createMany({
+    data: [
+      {
+        bidPackageId: erosionPackage.id,
+        vendorId: greenShield.id,
+        amount: 9200,
+        status: "RECEIVED",
+        scopeNotes: "Silt fence, inlet protection, weekly inspections, haul-off included",
+        receivedDate: addDays(today, -2),
+      },
+      {
+        // Lower number, but excludes two things the other bid includes — the
+        // whole reason a comparison needs scope/exclusions, not just amount.
+        bidPackageId: erosionPackage.id,
+        vendorId: bayviewSite.id,
+        amount: 8400,
+        status: "RECEIVED",
+        scopeNotes: "Silt fence and inlet protection only",
+        exclusions: "Excludes weekly inspection reports and sediment haul-off",
+        receivedDate: addDays(today, -1),
+      },
+    ],
+  });
+  await prisma.subBid.create({
+    data: {
+      bidPackageId: erosionPackage.id,
+      vendorId: (await seedVendor(company.id, "Ridgeline Environmental", { trade: "Erosion control" })).id,
+      status: "DECLINED",
+    },
+  });
+
   const wonFairviewFlooring = await prisma.opportunity.create({
     data: {
       companyId: company.id,

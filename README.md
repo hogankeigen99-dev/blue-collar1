@@ -190,6 +190,20 @@ Command Center are never two different calculations of the same thing.
   a schedule-driven projection, since `SchedulePhase`-level target billing
   dates don't exist yet. The Company Command Center carries an AR/AP/
   net-position tile group linking here.
+- **Bid packages** (`/jobs/[id]/bid-packages`, `lib/subbids.ts`) —
+  subcontractor bid leveling: a scope of work goes out to multiple subs
+  (`BidPackage`), each invited sub gets a real `Vendor` record
+  (found-or-created inline, same pattern as everywhere else) and a
+  `SubBid` — `INVITED` with no amount until a quote actually comes back,
+  then `RECEIVED` with its own scope notes and exclusions so bids compare
+  on what they actually cover, not dollar amount alone (the compare page
+  sorts cheapest-first). Selecting a winner is one action:
+  `lib/subbid-actions.ts`'s `selectSubBidWinner` marks it `SELECTED`,
+  rejects every other still-open bid on the package, and creates a real
+  `Subcontract` with the vendor and committed amount carried over —
+  `sourceSubBidId` set, nothing re-typed — which flows straight into the
+  existing job-cost forecast with zero new code there. Job-scoped, post-
+  Award only, same scoping `Vendor`/`Subcontract` already use.
 - **Project Portfolio** (`/projects`, `lib/portfolio.ts`) — one row per
   project, filterable by PM/foreman/project type/stage/risk, sortable, with
   the same columns the Command Center already computes per job (schedule %,
@@ -283,7 +297,23 @@ seeded slow-paying-owner job; the retainage summary shows both directions;
 the 8-week forecast renders with an overdue call-out for what's already
 past the Net-30 assumption; the Company Command Center's AR/AP/net-position
 tile links through; and marking a received material paid on the materials
-page removes it from AP aging.
+page removes it from AP aging. Bid packages have their own suite too
+(`tests/e2e/subbid.spec.ts`): the awarded package shows its winning and
+rejected bids and links straight to the real subcontract it created; the
+still-open package's bids sort cheapest-first with exclusions visible for
+comparison; and the full live flow — create a package, invite a
+found-or-created vendor, record a quote with scope notes and exclusions,
+select the winner — produces a real `Subcontract` with no re-entry, whose
+committed cost shows up on the job's own cost table immediately. One more
+suite runs the whole connected lifecycle end to end in a single test
+(`tests/e2e/z-full-operating-system.spec.ts`, deliberately named to run
+last — it wins an Opportunity and completes a Job, which moves company-wide
+aggregates other suites assert exact values for): Opportunity → Bid →
+Award → Contract/SOV → Schedule/Crew → Equipment → Daily Report →
+Materials/Vendor → Subcontract → Change Order → Job Cost → Billing →
+Cash (AR/AP) → Closeout → Historical Estimate, with the same numbers
+cross-checked across the Command Center, Contract page, Financials, and
+Cash.
 
 ## Stack
 
@@ -810,6 +840,19 @@ lib/cash.ts                     Read layer: getArAging/getApAging (0-30/31-60/61
 app/cash/                       AR/AP aging tables, retainage summary, 8-week forecast -- company-
                                  wide, ADMIN/PM only
 
+--- Bid packages (subcontractor bid leveling) ---
+lib/subbids.ts                  Read layer: getBidPackages() (list w/ low/high/received-count per
+                                 job), getBidPackage() (full compare view, bids sorted cheapest-
+                                 first, not-yet-quoted last)
+lib/subbid-actions.ts           Server Actions: createBidPackage, inviteSubBid (resolveOrCreate
+                                 VendorId, same inline find-or-create as everywhere else),
+                                 updateSubBid (record a quote's amount/scopeNotes/exclusions, or
+                                 mark declined), selectSubBidWinner (one transaction: SELECTED,
+                                 rejects every other open bid, creates the real Subcontract with
+                                 sourceSubBidId set, closes the package AWARDED)
+app/jobs/[id]/bid-packages/     Package list, new-package form, and the compare/detail page --
+                                 invite a sub, record what came back, select the winner
+
 prisma/schema.prisma  Data model
 prisma/seed.ts        Sample data, demo login accounts, seven simultaneous active/completed
                        projects each demonstrating one condition cleanly for the Company Command
@@ -823,13 +866,17 @@ prisma/seed.ts        Sample data, demo login accounts, seven simultaneous activ
                        for the 61-90/90+ buckets), a real Vendor directory (every material/
                        subcontract commitment tied to one, not a free-text name) with one vendor's
                        certificate of insurance deliberately lapsed to demonstrate the COI_EXPIRED
-                       alert live and a mix of paid/unpaid received materials for AP variety, plus
+                       alert live and a mix of paid/unpaid received materials for AP variety, a
+                       subcontractor bid-leveling scenario on the Harbor Sitework job (one package
+                       already awarded -- a real Subcontract created from the winning bid, the
+                       runner-up rejected -- and one still open with two competing quotes, one
+                       cheaper but missing scope the other includes, plus a declined invite), plus
                        the small-crew-project and estimate/actual-loop demo scenarios from earlier
                        phases
 docs/ARCHITECTURE.md            Full company-lifecycle design (Lead/Bid through Executive Command)
                                  -- the Opportunity pipeline and Contract/SOV/Billing are Phase 1,
-                                 and Vendor/Subcontract procurement + Cash are both now-shipped
-                                 halves of Phase 2 (SubBid is the one still-open half)
+                                 and Vendor/Subcontract procurement, Cash, and SubBid are all three
+                                 now-shipped halves of Phase 2
 docs/OPERATING-DATA-MODEL.md    Source-of-truth audit for every major business concept -- what
                                  this phase's company-wide views were built against
 tests/e2e/             Playwright E2E suite (npm run test:e2e) -- small-crew-project workflow,

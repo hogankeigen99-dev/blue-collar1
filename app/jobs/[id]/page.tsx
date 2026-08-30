@@ -277,6 +277,9 @@ export default async function JobDetailPage({
         <Link href={`/jobs/${job.id}/contract`} className="bg-white border rounded-md px-3 py-1.5 hover:bg-slate-50">
           Contract &amp; SOV
         </Link>
+        <Link href={`/jobs/${job.id}/bid-packages`} className="bg-white border rounded-md px-3 py-1.5 hover:bg-slate-50">
+          Bid packages
+        </Link>
         <Link href={`/jobs/${job.id}/subcontracts`} className="bg-white border rounded-md px-3 py-1.5 hover:bg-slate-50">
           Subcontracts
         </Link>

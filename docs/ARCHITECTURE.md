@@ -169,7 +169,7 @@ same historical-rate panel as an existing budget line, plus a "Mark Won" /
 
 ---
 
-### 3.2 Preconstruction — **Partial**
+### 3.2 Preconstruction — **Partial** (bid leveling now built)
 
 **Exists.** `ProjectStage.PRECON` + stage-triggered checklist generation
 (`lib/checklist.ts`, `ChecklistTemplateItem`/`JobChecklistItem`) already
@@ -177,20 +177,46 @@ covers "what needs to happen before mobilization" as a checkable list.
 `Document` (`DocumentCategory` includes drawings, contracts, permits) already
 gives PRECON somewhere to attach plans and permit documents.
 
-**Missing.** Subcontractor bid leveling (comparing multiple sub quotes for
-the same scope before the Contract/Subcontract is signed) and a
-constructability/permit-status field on the Job itself (today permit
-status would just be a checklist item with no structured "permit #, issued
-date, expiration" data).
+**Subcontractor bid leveling — built.** `BidPackage` (a scope of work put
+out for competing quotes) + `SubBid` (one sub's response — invited, then
+maybe a received quote with its own scope notes and exclusions, so bids
+compare on what they actually cover, not dollar amount alone).
 
-**Target addition.** A `SubBid` model (leadId or jobId, costCodeId or
-scope description, vendorId, amount, status: `RECEIVED`/`SELECTED`) — the
-selected one becomes the seed for the real `Subcontract` in §3.8. Small,
-deliberately not a full bid-management suite (no automated RFP emailing).
+```
+BidPackage         -- job-scoped, post-Award (same scoping as Vendor/Subcontract)
+  id, jobId
+  title, scope, dueDate
+  status            OPEN | AWARDED | CANCELLED
 
-**Automation.** Selecting a `SubBid` pre-fills a new `Subcontract`'s
-committed amount and vendor — the same "don't re-type what's already
-known" rule as everywhere else.
+SubBid
+  id, bidPackageId, vendorId
+  amount            -- null until a quote actually comes in
+  status            INVITED | RECEIVED | SELECTED | REJECTED | DECLINED
+  scopeNotes, exclusions, receivedDate
+```
+
+**Automation.** Selecting a `RECEIVED` bid as the winner
+(`lib/subbid-actions.ts`'s `selectSubBidWinner`) does, in one transaction:
+marks it `SELECTED`; marks every other still-open bid on the package
+`REJECTED` (a package has exactly one winner); creates a real `Subcontract`
+with `sourceSubBidId` set — vendor and committed amount carried over, never
+re-typed — the same shape `ContractLine.sourceChangeOrderId` and
+`MaterialRequest.sourceDailyReportId` already use for "the created artifact
+points back to its origin"; and closes the package as `AWARDED`. The new
+`Subcontract`'s `committedAmount` flows into `lib/job-costing.ts`'s existing
+`SUBCONTRACTOR` category rollup with zero new code there — the forecast
+was already reading every `Subcontract` row, this is just one more of them.
+
+**Deliberately job-scoped only, not also reachable from a pre-Award
+Opportunity** — matches how Vendor/Subcontract already work, and a lead
+that's still being bid to the owner rarely has firm sub quotes yet anyway.
+**Deliberately not a full bid-management suite** — no automated RFP
+emailing (invites are recorded, not sent), no document attachments per
+bid (the existing job-level `Document` model covers that if needed).
+
+**Still missing.** A constructability/permit-status field on the Job
+itself (today permit status would just be a checklist item with no
+structured "permit #, issued date, expiration" data).
 
 ---
 
@@ -353,9 +379,9 @@ this time.
 types a new name on the material-request, subcontract, or Award forms
 (`lib/vendors.ts`'s `resolveOrCreateVendorId`) — no second "go create the
 vendor" trip, same pattern the Award form already used for a new
-`Customer`. A `SubBid` marked `SELECTED` (§3.2, still not built) would
-create the `Subcontract` pre-filled with vendor and amount — not
-reachable yet since `SubBid` itself isn't built.
+`Customer`. A `SubBid` marked `SELECTED` (§3.2, now built) creates the
+`Subcontract` pre-filled with vendor and amount automatically — see §3.2
+for the full flow.
 
 ---
 
@@ -598,7 +624,8 @@ erDiagram
     Vendor ||--o{ MaterialRequest : supplies
     Invoice ||--o{ InvoiceLine : has
     InvoiceLine }o--|| ContractLine : bills
-    Job ||--o{ SubBid : receives
+    Job ||--o{ BidPackage : has
+    BidPackage ||--o{ SubBid : receives
     SubBid }o--|| Vendor : from
     SubBid ||--o| Subcontract : "selected into"
 ```
@@ -617,7 +644,7 @@ Everything not pictured above (`Job`, `JobCostCode`, `CostCodeBenchmark`,
   same shape as `Invoice`/`ChangeOrder` — no direct `companyId` needed, the
   job it belongs to is verified before it's ever looked up. `ContractLine`,
   `LeadEstimateLine`, `SchedulePhase`, `Subcontract`, `InvoiceLine`,
-  `SubBid` inherit isolation from their parent, exactly like
+  `BidPackage`, `SubBid` inherit isolation from their parent, exactly like
   `ProductionEntry` inherits from `JobCostCode` today — same
   parent-verification pattern in every new Server Action.
 - **Audit.** Extend the existing "money-, status-, identity-, or
@@ -690,7 +717,7 @@ Values and §Invoice / pay application, and the README's "Company
 Operating Core" section, for what's live. `/cash` (AR/AP aging, forecast)
 was not built this phase — see Phase 2 below, where it shipped.
 
-### Phase 2 — Money in/out: Procurement formalization + Cash
+### Phase 2 — Money in/out: Procurement formalization + Cash — **all three halves shipped**
 
 **`Vendor`/`Subcontract` half: built.** A real vendor master record
 (`Vendor`) replacing the free-text `vendor` string on both
@@ -701,10 +728,12 @@ now feeds a real alert (`lib/alerts.ts`'s `COI_EXPIRED`). See
 `docs/OPERATING-DATA-MODEL.md`'s §Vendor and §Subcontract, and the
 README's "Company Operating Core" section, for what's live.
 
-**`SubBid` half: still not built.** No bid-leveling entity yet (§3.2
-remains partial) — a `Subcontract` today is entered directly, not
-promoted from a selected sub-bid. Explicitly deferred again in favor of
-Cash below; still next.
+**`SubBid` half: built.** `BidPackage` + `SubBid` (§3.2) — a scope of
+work goes out for competing quotes, comes back with real scope notes and
+exclusions so bids compare on more than dollar amount, and selecting the
+winner creates the `Subcontract` automatically (vendor + committed amount
+carried over, `sourceSubBidId` set). Shipped after Cash below, not before
+— Cash was requested first, explicitly.
 
 **`/cash` half: built.** AR aging (`Invoice`), AP aging
 (`Subcontract`/`MaterialRequest`), a retainage summary both directions,
