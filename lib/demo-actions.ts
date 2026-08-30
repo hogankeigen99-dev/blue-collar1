@@ -6,22 +6,7 @@ import { redirect } from "next/navigation";
 import { SESSION_COOKIE, SESSION_COOKIE_OPTIONS, signSession } from "@/lib/auth";
 import { requireSession } from "@/lib/session";
 import { seedDemoCompany } from "@/lib/demo-seed";
-
-/** The 5 walkthrough personas. Estimator and Accounting are real ADMIN-role
- * logins (see lib/demo-seed.ts) landing on a specific view rather than the
- * default Company Command, since neither is a distinct Role in this app —
- * that split is a deliberate, previously-documented scope decision
- * (README's "A note on scope"), not something demo mode should quietly
- * reintroduce as a second permission model. */
-export const DEMO_PERSONAS = [
-  { key: "executive", label: "Executive", email: "admin@crewsync.dev", landing: "/" },
-  { key: "pm", label: "Project Manager", email: "pm@crewsync.dev", landing: "/today" },
-  { key: "estimator", label: "Estimator", email: "estimator@crewsync.dev", landing: "/opportunities" },
-  { key: "foreman", label: "Foreman", email: "foreman@crewsync.dev", landing: "/field" },
-  { key: "accounting", label: "Accounting", email: "accounting@crewsync.dev", landing: "/cash" },
-] as const;
-
-export type DemoPersonaKey = (typeof DEMO_PERSONAS)[number]["key"];
+import { DEMO_PERSONAS } from "@/lib/demo-personas";
 
 /** True only for the seeded demo company — every demo-only control (persona
  * switcher, walkthrough, reset) gates on this, server-side, not just by

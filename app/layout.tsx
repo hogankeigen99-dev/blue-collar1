@@ -1,12 +1,22 @@
 import type { Metadata } from "next";
+import { Lexend, Inter } from "next/font/google";
 import Link from "next/link";
 import { getSession } from "@/lib/session";
 import { logout } from "@/lib/auth-actions";
 import { canManageEstimates } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { DEMO_PERSONAS, switchDemoRole, resetDemo } from "@/lib/demo-actions";
+import { switchDemoRole, resetDemo, isDemoCompany } from "@/lib/demo-actions";
+import { DEMO_PERSONAS } from "@/lib/demo-personas";
+import { getWalkthroughSteps } from "@/lib/walkthrough";
 import { ResetDemoButton } from "./reset-demo-button";
+import { WalkthroughLauncher } from "./walkthrough-panel";
 import "./globals.css";
+
+// Lexend for headings/brand (distinctive, built for reading clarity — a
+// deliberate choice, not the default UI-sans pairing), Inter for body/data
+// text where dense tables need maximum legibility at small sizes.
+const displayFont = Lexend({ subsets: ["latin"], variable: "--font-display", weight: ["500", "600", "700"] });
+const bodyFont = Inter({ subsets: ["latin"], variable: "--font-body" });
 
 export const metadata: Metadata = {
   title: "CrewSync — Company Operating System",
@@ -33,17 +43,16 @@ export default async function RootLayout({
 }) {
   const session = await getSession();
   const isForeman = session?.role === "FOREMAN";
-  const isDemo = session
-    ? Boolean((await prisma.company.findUnique({ where: { id: session.companyId }, select: { isDemo: true } }))?.isDemo)
-    : false;
+  const isDemo = session ? await isDemoCompany(session.companyId) : false;
+  const walkthroughSteps = isDemo && session ? await getWalkthroughSteps(session.companyId) : null;
 
   return (
-    <html lang="en">
-      <body>
+    <html lang="en" className={`${displayFont.variable} ${bodyFont.variable}`}>
+      <body className="font-sans">
         <div className="min-h-screen flex flex-col">
-          <header className="border-b bg-white">
+          <header className="border-b border-slate-200 bg-white">
             <nav className="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center gap-x-6 gap-y-2">
-              <Link href="/" className="font-semibold text-lg">
+              <Link href="/" className="font-display font-semibold text-lg tracking-tight text-slate-900">
                 CrewSync
               </Link>
 
@@ -118,7 +127,7 @@ export default async function RootLayout({
           {isDemo && session && (
             <div className="bg-slate-900 text-white">
               <div className="max-w-6xl mx-auto px-4 py-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
-                <span className="font-semibold tracking-wide text-xs uppercase text-blue-300">Demo mode</span>
+                <span className="font-semibold tracking-wide text-xs uppercase text-brand-300">Demo mode</span>
                 <form action={switchDemoRole} className="flex flex-wrap items-center gap-1">
                   <span className="text-slate-400 mr-1">Switch Demo Role:</span>
                   {DEMO_PERSONAS.map((p) => {
@@ -132,7 +141,7 @@ export default async function RootLayout({
                         disabled={active}
                         className={
                           active
-                            ? "px-2 py-1 rounded-md bg-blue-600 text-white font-medium"
+                            ? "px-2 py-1 rounded-md bg-brand-600 text-white font-medium"
                             : "px-2 py-1 rounded-md text-slate-200 hover:bg-slate-800"
                         }
                       >
@@ -141,7 +150,8 @@ export default async function RootLayout({
                     );
                   })}
                 </form>
-                <div className="ml-auto">
+                <div className="ml-auto flex items-center gap-2">
+                  {walkthroughSteps && walkthroughSteps.length > 0 && <WalkthroughLauncher steps={walkthroughSteps} />}
                   <ResetDemoButton action={resetDemo} />
                 </div>
               </div>
