@@ -10,9 +10,13 @@ export const metadata: Metadata = {
   description: "Award, schedule, run, cost, bill, and learn from every project — connected, not disconnected modules.",
 };
 
+// Grouped by who actually uses each link day to day, not alphabetically —
+// Pipeline+Estimating (estimator's world) sit together right after Command,
+// Financials+Cash (accounting's world) sit together below, rather than
+// interleaved.
 const PRIMARY_NAV = [
-  { href: "/", label: "Command" },
   { href: "/opportunities", label: "Pipeline" },
+  { href: "/cost-codes", label: "Estimating" },
   { href: "/today", label: "Action Center" },
   { href: "/projects", label: "Projects" },
   { href: "/field", label: "Field" },
@@ -50,6 +54,12 @@ export default async function RootLayout({
 
               {session && !isForeman && (
                 <>
+                  <Link
+                    href={session.role === "PM" ? "/?view=command" : "/"}
+                    className="text-sm text-slate-600 hover:text-slate-900 font-medium"
+                  >
+                    Command
+                  </Link>
                   {PRIMARY_NAV.map((item) => (
                     <Link key={item.href} href={item.href} className="text-sm text-slate-600 hover:text-slate-900 font-medium">
                       {item.label}
@@ -65,9 +75,6 @@ export default async function RootLayout({
                       Cash
                     </Link>
                   )}
-                  <Link href="/cost-codes" className="text-sm text-slate-600 hover:text-slate-900">
-                    Estimating
-                  </Link>
                   <Link href="/company" className="text-sm text-slate-600 hover:text-slate-900">
                     Company
                   </Link>

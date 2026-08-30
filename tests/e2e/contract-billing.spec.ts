@@ -76,9 +76,15 @@ test.describe("Contract & Schedule of Values", () => {
     await page.fill('input[name="title"]', "Owner-requested scope addition");
     await page.click('button:has-text("Create change order")');
     await page.waitForURL(`${jobHref}/change-orders`);
+    // The status <select> below is a controlled client component —
+    // interacting immediately after a fresh navigation can race React
+    // hydration under load (same class of race documented in
+    // opportunity-pipeline.spec.ts's bid-line cost-code select).
+    await page.waitForLoadState("networkidle");
 
     const coForm = page.locator('form:has(select[name="status"])').first();
     await coForm.locator('select[name="status"]').selectOption("APPROVED");
+    await expect(coForm.locator('select[name="status"]')).toHaveValue("APPROVED");
     await coForm.locator('input[name="revenueAmount"]').fill("6000");
     await coForm.locator('input[name="costAmount"]').fill("4000");
     await coForm.locator('button:has-text("Save")').click();

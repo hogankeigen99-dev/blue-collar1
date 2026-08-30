@@ -218,6 +218,19 @@ async function main() {
       role: "FOREMAN",
     },
   });
+  // A second PM — not a demo login account, just real enough attribution
+  // so the "My action center" filter (app/today/page.tsx) has something to
+  // actually prove: Priya's own view should exclude Marcus's job/exception,
+  // not just render identically to "show all" because she's the only PM.
+  const marcus = await prisma.user.create({
+    data: {
+      companyId: company.id,
+      name: "Marcus Webb",
+      email: "marcus.webb@crewsync.dev",
+      passwordHash: hashPassword("unused-not-a-login-account"),
+      role: "PM",
+    },
+  });
 
   const alice = await prisma.worker.create({
     data: { companyId: company.id, name: "Alice Johnson", role: "Electrician", phone: "555-0101" },
@@ -1957,6 +1970,32 @@ async function main() {
       bidDueDate: addDays(today, 3),
       assignedToUserId: priya.id,
       stage: "SUBMITTED",
+    },
+  });
+
+  // A small job PM'd by someone other than Priya — the one thing the
+  // company's PM roster otherwise never proves: that "My action center"
+  // (app/today/page.tsx) actually filters by pmUserId instead of just
+  // rendering identically to "show everyone" because there's only one PM.
+  const lakeviewCustomer = await prisma.customer.create({
+    data: { companyId: company.id, name: "Lakeview HOA", address: "500 Lakeview Terrace" },
+  });
+  await prisma.job.create({
+    data: {
+      companyId: company.id,
+      divisionId: fieldOps.id,
+      jobNumber: `${SEED_YEAR}-016`,
+      title: "Lakeview Terrace — Roof Repair",
+      address: "500 Lakeview Terrace",
+      status: "IN_PROGRESS",
+      projectType: "Roofing repair",
+      customerId: lakeviewCustomer.id,
+      contractValue: 26000,
+      pmUserId: marcus.id,
+      foremanWorkerId: frank.id,
+      targetStartDate: addDays(today, -12),
+      targetEndDate: addDays(today, -3),
+      stage: "ACTIVE",
     },
   });
 

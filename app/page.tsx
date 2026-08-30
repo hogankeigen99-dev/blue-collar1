@@ -51,11 +51,24 @@ function RiskBucket({ title, jobs, emptyText, riskParam }: { title: string; jobs
   );
 }
 
-export default async function CompanyCommandCenter() {
+export default async function CompanyCommandCenter({
+  searchParams,
+}: {
+  searchParams: Promise<{ view?: string }>;
+}) {
   const session = await requireSession();
+  const { view } = await searchParams;
 
   if (session.role === "FOREMAN") {
     redirect("/field");
+  }
+  // A PM's home is their own Action Center (below), not the company-wide
+  // executive rollup — same reasoning as the FOREMAN redirect above, just
+  // one role up. "Command" in the nav still reaches this page explicitly
+  // via ?view=command (see app/layout.tsx) for a PM who wants to check
+  // overall company health.
+  if (session.role === "PM" && view !== "command") {
+    redirect("/today");
   }
 
   const cmd = await getCompanyCommand(session.companyId);

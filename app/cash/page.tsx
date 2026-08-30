@@ -1,5 +1,14 @@
 import Link from "next/link";
-import { getArAging, getApAging, getRetainageSummary, getCashForecast, type AgingReport, type AgingBucket } from "@/lib/cash";
+import {
+  getArAging,
+  getApAging,
+  getRetainageSummary,
+  getReleasableRetainageJobs,
+  getCashForecast,
+  type AgingReport,
+  type AgingBucket,
+} from "@/lib/cash";
+import { getAlerts } from "@/lib/alerts";
 import { requireSession } from "@/lib/session";
 import { canManageEstimates } from "@/lib/auth";
 import { formatMoney, formatDate } from "@/lib/format";
@@ -78,12 +87,16 @@ export default async function CashPage() {
     );
   }
 
-  const [ar, ap, retainage, forecast] = await Promise.all([
+  const [ar, ap, retainage, forecast, releasableRetainage, alerts] = await Promise.all([
     getArAging(session.companyId),
     getApAging(session.companyId),
     getRetainageSummary(session.companyId),
     getCashForecast(session.companyId, 8),
+    getReleasableRetainageJobs(session.companyId),
+    getAlerts(session.companyId),
   ]);
+  const overdueAlerts = alerts.filter((a) => a.type === "AR_SEVERELY_OVERDUE" || a.type === "AP_SEVERELY_OVERDUE");
+  const needsActionCount = releasableRetainage.length + overdueAlerts.length;
 
   const net = ar.total - ap.total;
   const maxForecastMagnitude = Math.max(
@@ -95,12 +108,17 @@ export default async function CashPage() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-semibold">Cash</h1>
-        <p className="text-slate-500 text-sm mt-1">
-          What&apos;s been billed but not collected, what&apos;s been billed to us but not paid, and a forecast of
-          when — a computed rollup over invoices, subcontracts, and materials, not a separate ledger.
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">Cash</h1>
+          <p className="text-slate-500 text-sm mt-1">
+            What&apos;s been billed but not collected, what&apos;s been billed to us but not paid, and a forecast of
+            when — a computed rollup over invoices, subcontracts, and materials, not a separate ledger.
+          </p>
+        </div>
+        <Link href="/accounting" className="text-sm text-blue-600 hover:underline whitespace-nowrap">
+          GL export mapping →
+        </Link>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -123,6 +141,48 @@ export default async function CashPage() {
           </div>
         </div>
       </div>
+
+      {needsActionCount > 0 && (
+        <div className="space-y-3">
+          <h2 className="text-lg font-medium">
+            Needs action <span className="text-slate-400 font-normal text-base">({needsActionCount})</span>
+          </h2>
+          <div className="bg-white border rounded-lg divide-y">
+            {releasableRetainage.map((r) => (
+              <Link
+                key={`${r.jobId}-${r.side}`}
+                href={r.side === "AR" ? `/jobs/${r.jobId}/invoices` : `/jobs/${r.jobId}/subcontracts`}
+                className="flex items-center justify-between px-4 py-3 hover:bg-slate-50"
+              >
+                <div>
+                  <div className="font-medium text-sm">{r.jobTitle}</div>
+                  <div className="text-xs text-slate-500 mt-0.5">{r.jobNumber} · Retainage releasable</div>
+                </div>
+                <span className="text-xs px-2 py-1 rounded-full whitespace-nowrap bg-blue-100 text-blue-700">
+                  {r.detail}
+                </span>
+              </Link>
+            ))}
+            {overdueAlerts.map((a, i) => (
+              <Link
+                key={`${a.jobId}-${a.type}-${i}`}
+                href={a.type === "AR_SEVERELY_OVERDUE" ? `/jobs/${a.jobId}/invoices` : `/jobs/${a.jobId}/subcontracts`}
+                className="flex items-center justify-between px-4 py-3 hover:bg-slate-50"
+              >
+                <div>
+                  <div className="font-medium text-sm">{a.jobTitle}</div>
+                  <div className="text-xs text-slate-500 mt-0.5">{a.message}</div>
+                </div>
+                <span
+                  className={`text-xs px-2 py-1 rounded-full whitespace-nowrap ${a.severity === "critical" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}
+                >
+                  {a.type === "AR_SEVERELY_OVERDUE" ? "AR overdue" : "AP overdue"}
+                </span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       <AgingTable title="Accounts receivable" report={ar} referenceLabel="Invoice" />
       <AgingTable title="Accounts payable" report={ap} referenceLabel="Vendor / bill" />

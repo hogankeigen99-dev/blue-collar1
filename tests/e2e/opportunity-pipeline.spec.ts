@@ -67,9 +67,18 @@ test.describe("Pipeline", () => {
     const opportunityHref = new URL(page.url()).pathname;
 
     await page.click('a:has-text("+ Add bid line")');
-    const costCodeOptions = await page.locator('select[name="costCodeId"] option').allTextContents();
-    const slabLabel = costCodeOptions.find((o) => o.includes("Concrete slab"));
-    await page.selectOption('select[name="costCodeId"]', { label: slabLabel! });
+    // BudgetLineFields is a client component with a controlled <select> —
+    // interacting before it hydrates lets Playwright's selectOption land on
+    // the raw DOM, which React's first client render then silently reverts
+    // back to its initial (first-alphabetical) option. networkidle is a
+    // reasonable proxy for "hydrated" here (the client bundle and any data
+    // fetch are done well before the network goes idle), and the
+    // toHaveValue check right after confirms the selection actually stuck
+    // rather than trusting selectOption's own resolution.
+    await page.waitForLoadState("networkidle");
+    const slabValue = await page.locator('select[name="costCodeId"] option', { hasText: "Concrete slab" }).getAttribute("value");
+    await page.selectOption('select[name="costCodeId"]', slabValue!);
+    await expect(page.locator('select[name="costCodeId"]')).toHaveValue(slabValue!);
     // The estimate/actual loop's historical-rate panel, reused as-is here.
     expect(await page.locator("body").innerText()).toContain("Historical productivity for this code");
     await page.fill('input[name="estimatedQty"]', "40");
@@ -113,8 +122,11 @@ test.describe("Pipeline", () => {
     const opportunityId = opportunityHref.split("/").pop()!;
 
     await page.click('a:has-text("+ Add bid line")');
-    const costCodeOptions = await page.locator('select[name="costCodeId"] option').allTextContents();
-    await page.selectOption('select[name="costCodeId"]', { label: costCodeOptions.find((o) => o.includes("Excavation"))! });
+    // Same controlled-<select>-vs-hydration race as the slab-bid test above.
+    await page.waitForLoadState("networkidle");
+    const excavationValue = await page.locator('select[name="costCodeId"] option', { hasText: "Excavation" }).getAttribute("value");
+    await page.selectOption('select[name="costCodeId"]', excavationValue!);
+    await expect(page.locator('select[name="costCodeId"]')).toHaveValue(excavationValue!);
     await page.fill('input[name="estimatedQty"]', "60");
     await page.fill('input[name="estimatedHours"]', "42");
     await page.click('button:has-text("Add bid line")');

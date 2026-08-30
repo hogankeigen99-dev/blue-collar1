@@ -59,14 +59,19 @@ export default async function CostCodesPage({
             Historical actual productivity from completed jobs — the estimating asset.
           </p>
         </div>
-        {session && canManageEstimates(session.role) && (
-          <Link
-            href="/cost-codes/new"
-            className="bg-slate-900 text-white text-sm px-4 py-2 rounded-md hover:bg-slate-700"
-          >
-            + New cost code
+        <div className="flex items-center gap-3">
+          <Link href="/opportunities" className="text-sm text-blue-600 hover:underline whitespace-nowrap">
+            ← Pipeline
           </Link>
-        )}
+          {session && canManageEstimates(session.role) && (
+            <Link
+              href="/cost-codes/new"
+              className="bg-slate-900 text-white text-sm px-4 py-2 rounded-md hover:bg-slate-700"
+            >
+              + New cost code
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* Item 7: estimating accuracy dashboard */}

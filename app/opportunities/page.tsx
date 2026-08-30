@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { scopedPrisma } from "@/lib/tenant";
-import { getOpportunityPipeline, getWinRateReport } from "@/lib/opportunities";
+import { getOpportunityPipeline, getWinRateReport, type OpportunityRow } from "@/lib/opportunities";
 import { requireSession } from "@/lib/session";
 import { formatMoney, formatDate, OPPORTUNITY_STAGE_LABEL } from "@/lib/format";
 
@@ -8,6 +8,22 @@ export const dynamic = "force-dynamic";
 
 function pct(n: number | null): string {
   return n !== null ? `${(n * 100).toFixed(0)}%` : "—";
+}
+
+const DUE_SOON_DAYS = 7;
+
+/** Not a component — a plain helper, so calling Date.now() here doesn't
+ * trip the "impure during render" rule the way it would inside the page
+ * component itself. */
+function getDueSoon(rows: OpportunityRow[]): OpportunityRow[] {
+  const now = Date.now();
+  return rows
+    .filter((o) => o.bidDueDate && o.bidDueDate.getTime() - now <= DUE_SOON_DAYS * 86_400_000)
+    .sort((a, b) => a.bidDueDate!.getTime() - b.bidDueDate!.getTime());
+}
+
+function daysUntil(date: Date): number {
+  return Math.ceil((date.getTime() - Date.now()) / 86_400_000);
 }
 
 const STAGE_CLASSES: Record<string, string> = {
@@ -25,7 +41,7 @@ export default async function OpportunitiesPage({
   const prisma = scopedPrisma(session.companyId);
   const sp = await searchParams;
 
-  const [pipeline, winRate, pmUsers, projectTypeRows] = await Promise.all([
+  const [pipeline, winRate, pmUsers, projectTypeRows, openPipelineUnfiltered] = await Promise.all([
     getOpportunityPipeline(session.companyId, {
       assignedToUserId: sp.assignedToUserId || undefined,
       projectType: sp.projectType || undefined,
@@ -34,9 +50,16 @@ export default async function OpportunitiesPage({
     getWinRateReport(session.companyId),
     prisma.user.findMany({ where: { role: { in: ["ADMIN", "PM"] }, active: true }, orderBy: { name: "asc" } }),
     prisma.opportunity.findMany({ where: { projectType: { not: null } }, select: { projectType: true }, distinct: ["projectType"] }),
+    // Unfiltered by the page's own filter widget below — "what needs me
+    // this week" shouldn't disappear just because someone filtered the
+    // table by project type or assignee.
+    getOpportunityPipeline(session.companyId),
   ]);
   const projectTypes = projectTypeRows.map((r) => r.projectType!).sort();
   const hasActiveFilters = Object.values(sp).some((v) => v);
+
+  const dueSoon = getDueSoon(openPipelineUnfiltered);
+  const noCostLinesYet = openPipelineUnfiltered.filter((o) => o.stage !== "OPPORTUNITY" && o.costCodeLineCount === 0);
 
   return (
     <div className="space-y-8">
@@ -48,10 +71,60 @@ export default async function OpportunitiesPage({
             same Award flow every other project goes through, cost codes carried over automatically.
           </p>
         </div>
-        <Link href="/opportunities/new" className="bg-slate-900 text-white text-sm px-4 py-2 rounded-md hover:bg-slate-700">
-          + New opportunity
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link href="/cost-codes" className="text-sm text-blue-600 hover:underline whitespace-nowrap">
+            Historical rates →
+          </Link>
+          <Link href="/opportunities/new" className="bg-slate-900 text-white text-sm px-4 py-2 rounded-md hover:bg-slate-700">
+            + New opportunity
+          </Link>
+        </div>
       </div>
+
+      {(dueSoon.length > 0 || noCostLinesYet.length > 0) && (
+        <div className="space-y-3">
+          <h2 className="text-lg font-medium">Needs attention</h2>
+          <div className="bg-white border rounded-lg divide-y">
+            {dueSoon.map((o) => {
+              const daysLeft = daysUntil(o.bidDueDate!);
+              const label =
+                daysLeft < 0
+                  ? `${Math.abs(daysLeft)} day(s) past due`
+                  : daysLeft === 0
+                    ? "Due today"
+                    : `Due in ${daysLeft} day(s)`;
+              return (
+                <Link key={`due-${o.id}`} href={`/opportunities/${o.id}`} className="flex items-center justify-between px-4 py-3 hover:bg-slate-50">
+                  <div>
+                    <div className="font-medium text-sm">{o.title}</div>
+                    <div className="text-xs text-slate-500 mt-0.5">
+                      {o.customerName ?? "—"} · {OPPORTUNITY_STAGE_LABEL[o.stage]}
+                    </div>
+                  </div>
+                  <span
+                    className={`text-xs px-2 py-1 rounded-full whitespace-nowrap ${daysLeft < 0 ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}
+                  >
+                    {label}
+                  </span>
+                </Link>
+              );
+            })}
+            {noCostLinesYet.map((o) => (
+              <Link key={`nolines-${o.id}`} href={`/opportunities/${o.id}`} className="flex items-center justify-between px-4 py-3 hover:bg-slate-50">
+                <div>
+                  <div className="font-medium text-sm">{o.title}</div>
+                  <div className="text-xs text-slate-500 mt-0.5">
+                    {o.customerName ?? "—"} · {OPPORTUNITY_STAGE_LABEL[o.stage]}
+                  </div>
+                </div>
+                <span className="text-xs px-2 py-1 rounded-full whitespace-nowrap bg-slate-100 text-slate-600">
+                  No cost code lines yet
+                </span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
         <div className="bg-white border rounded-lg p-4">

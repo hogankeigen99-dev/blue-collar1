@@ -260,15 +260,45 @@ Command Center are never two different calculations of the same thing.
   equipment, and document titles. Plain case-insensitive `contains`
   queries against existing tables — no external search infrastructure.
 - **Navigation is organized around how the company works, not the data
-  model** — Command, Pipeline, Action Center, Projects, Field, Schedule,
-  Financials, Estimating, Company (a hub for Resources/Workers/Customers/
-  Equipment/Divisions), Settings, instead of one top-level link per model.
-  FOREMAN gets a deliberately short nav (Today, Schedule, sign out) — no
-  executive/accounting/estimating complexity a foreman doesn't need.
+  model** — Command, Pipeline, Estimating, Action Center, Projects, Field,
+  Schedule, Financials, Cash, Company (a hub for Resources/Workers/
+  Customers/Equipment/Divisions), Settings — grouped by who actually uses
+  each link day to day (Pipeline+Estimating adjacent for the estimator's
+  world, Financials+Cash adjacent for accounting's) rather than
+  alphabetically or one link per model. FOREMAN gets a deliberately short
+  nav (Today, Schedule, sign out) — no executive/accounting/estimating
+  complexity a foreman doesn't need.
 - **Role-aware, not role-forked**: every view above reads the same company/
   project records regardless of who's looking — there's no separate
   "executive database" or "accounting copy." What differs by role is which
   views are reachable and what the root URL shows, not the underlying data.
+- **Each persona lands somewhere that answers "what do I do right now,"
+  not a menu to hunt through** — a pilot-readiness pass over the five
+  named personas (Executive, PM, Estimator, Foreman, Accounting):
+  - **Executive** (ADMIN): `/` — the company-wide Command Center, unchanged.
+  - **PM**: `/` now redirects to `/today` as **My action center** —
+    `lib/pm-daily-command.ts`'s `CommandItem` carries `pmUserId`, and the
+    page filters to the signed-in PM's own jobs by default (`?all=1` opts
+    into the full company-wide Action Center — what ADMIN always sees). The
+    nav's "Command" link still reaches the full Company Command Center
+    explicitly via `/?view=command`, the same escape hatch the redirect
+    itself checks for.
+  - **Estimator**: `/opportunities` (Pipeline) now opens with a "Needs
+    attention" panel — bids due within 7 days, and open bids with no
+    cost-code lines yet — computed from the same pipeline rows the table
+    below already fetches, unfiltered by whatever the page's own filter
+    widget is set to. Cross-linked to `/cost-codes` (historical rates) and
+    back, so the two are one workspace, not two unrelated nav items.
+  - **Accounting**: `/cash` now opens with a "Needs action" panel —
+    `lib/cash.ts`'s new `getReleasableRetainageJobs` (a job at Closeout/
+    Complete still holding retainage on either side) plus the existing
+    `AR_SEVERELY_OVERDUE`/`AP_SEVERELY_OVERDUE` alerts, each linking
+    straight to where the action happens (`/jobs/[id]/invoices` or
+    `/jobs/[id]/subcontracts`). Cross-linked to `/accounting` (GL export
+    mapping) and back.
+  - **Foreman**: `/field`, unchanged — already the tightest of the five
+    (personal assignment, crew, work plan, quick actions), the template
+    the other four moved toward.
 
 **A note on scope**: "Estimator" and "Accounting" are treated as *views*
 any ADMIN/PM can reach (Estimating → `/cost-codes`, Financials →
@@ -330,7 +360,18 @@ released (not just zeroed out) on both the owner side and a subcontract's
 side; a job still holding retainage at Closeout can release it live from
 the invoices page — a real pay application with no re-entry; and a
 severely overdue pay application is a critical exception on its own job
-and shows up on the company Action Center. One more
+and shows up on the company Action Center. The role-by-role pilot-
+readiness pass has its own suite too (`tests/e2e/role-workspaces.spec.ts`):
+a PM lands on their own Action Center rather than the company dashboard,
+and its "My jobs" filter actually excludes another PM's job (not just
+identical because there's only one PM in most demos) until "Show every
+project" is clicked; a PM can still reach the full Command Center from the
+nav; ADMIN still lands there by default; the Pipeline's "Needs attention"
+panel surfaces a bid due this week and one still missing cost-code lines,
+cross-linked to historical rates and back; Cash's "Needs action" panel
+surfaces releasable retainage and severely-overdue AR/AP as one list,
+cross-linked to the GL export mapping and back; and a Foreman's minimal
+nav and personal home are unaffected by any of it. One more
 suite runs the whole connected lifecycle end to end in a single test
 (`tests/e2e/z-full-operating-system.spec.ts`, deliberately named to run
 last — it wins an Opportunity and completes a Job, which moves company-wide
@@ -876,10 +917,13 @@ app/jobs/[id]/subcontracts/     Subcontract list + new-subcontract form -- promo
 lib/cash.ts                     Read layer: getArAging/getApAging (0-30/31-60/61-90/90+ buckets),
                                  getRetainageSummary (both directions -- nets a released Invoice
                                  line to zero automatically; excludes a released Subcontract via
-                                 retainageReleasedAt), getCashForecast (8-week, Net-30 assumption
-                                 from each row's own aging date) -- a computed rollup, no new ledger
-app/cash/                       AR/AP aging tables, retainage summary, 8-week forecast -- company-
-                                 wide, ADMIN/PM only
+                                 retainageReleasedAt), getReleasableRetainageJobs (per-job, not just
+                                 a total -- the Accounting workspace's "Needs action" list),
+                                 getCashForecast (8-week, Net-30 assumption from each row's own
+                                 aging date) -- a computed rollup, no new ledger
+app/cash/                       AR/AP aging tables, "Needs action" (releasable retainage +
+                                 severely-overdue AR/AP), retainage summary, 8-week forecast --
+                                 company-wide, ADMIN/PM only
 
 --- Bid packages (subcontractor bid leveling) ---
 lib/subbids.ts                  Read layer: getBidPackages() (list w/ low/high/received-count per

@@ -1,4 +1,5 @@
 import { scopedPrisma } from "@/lib/tenant";
+import { formatMoney } from "@/lib/format";
 
 const DAY_MS = 86_400_000;
 const NET_TERMS_DAYS = 30;
@@ -177,6 +178,75 @@ export async function getRetainageSummary(companyId: string): Promise<RetainageS
   const heldFromSubs = subs.reduce((s, c) => s + c.actualAmount * ((c.retainagePct ?? 0) / 100), 0);
 
   return { heldByOwner, heldFromSubs };
+}
+
+export type ReleasableRetainageJob = {
+  jobId: string;
+  jobTitle: string;
+  jobNumber: string;
+  side: "AR" | "AP";
+  amount: number;
+  detail: string; // "$X held by owner" or "$X held from Vendor Name"
+};
+
+/**
+ * Per-job retainage that's actually releasable right now — a job at
+ * Closeout/Complete still holding money on either side. The company-wide
+ * totals above answer "how much"; this answers "which job, act where" —
+ * the Accounting workspace's own version of lib/alerts.ts's "why/impact/
+ * action" framing, one step more concrete: a direct link to the release
+ * button (AR: lib/invoice-actions.ts's releaseRetainage on
+ * /jobs/[id]/invoices; AP: lib/subcontract-actions.ts's
+ * releaseSubcontractRetainage on /jobs/[id]/subcontracts).
+ */
+export async function getReleasableRetainageJobs(companyId: string): Promise<ReleasableRetainageJob[]> {
+  const prisma = scopedPrisma(companyId);
+
+  const closedOutJobs = await prisma.job.findMany({
+    where: { stage: { in: ["CLOSEOUT", "COMPLETE"] }, status: { not: "CANCELLED" } },
+    select: { id: true, title: true, jobNumber: true },
+  });
+  if (closedOutJobs.length === 0) return [];
+  const jobIds = closedOutJobs.map((j) => j.id);
+  const jobById = new Map(closedOutJobs.map((j) => [j.id, j]));
+
+  const [lines, subs] = await Promise.all([
+    prisma.invoiceLine.findMany({
+      where: { invoice: { status: { in: ["SENT", "PAID"] }, jobId: { in: jobIds } } },
+      select: { retainageWithheld: true, invoice: { select: { jobId: true } } },
+    }),
+    prisma.subcontract.findMany({
+      where: { status: { in: ["INVOICED", "PAID"] }, retainagePct: { not: null }, retainageReleasedAt: null, jobId: { in: jobIds } },
+      select: { jobId: true, actualAmount: true, retainagePct: true, vendor: { select: { name: true } } },
+    }),
+  ]);
+
+  const arByJob = new Map<string, number>();
+  for (const l of lines) {
+    arByJob.set(l.invoice.jobId, (arByJob.get(l.invoice.jobId) ?? 0) + l.retainageWithheld);
+  }
+
+  const rows: ReleasableRetainageJob[] = [];
+  for (const [jobId, amount] of arByJob) {
+    if (amount <= 0) continue;
+    const job = jobById.get(jobId)!;
+    rows.push({ jobId, jobTitle: job.title, jobNumber: job.jobNumber, side: "AR", amount, detail: `${formatMoney(amount)} held by owner` });
+  }
+  for (const s of subs) {
+    const amount = s.actualAmount * ((s.retainagePct ?? 0) / 100);
+    if (amount <= 0) continue;
+    const job = jobById.get(s.jobId)!;
+    rows.push({
+      jobId: s.jobId,
+      jobTitle: job.title,
+      jobNumber: job.jobNumber,
+      side: "AP",
+      amount,
+      detail: `${formatMoney(amount)} owed to ${s.vendor?.name ?? "subcontractor"}`,
+    });
+  }
+
+  return rows.sort((a, b) => b.amount - a.amount);
 }
 
 export type ForecastWeek = {

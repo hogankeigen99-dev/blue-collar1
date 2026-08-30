@@ -55,9 +55,15 @@ test.describe("Full operating system — one project through the whole chain", (
     const opportunityId = opportunityHref.split("/").pop()!;
 
     await page.click('a:has-text("+ Add bid line")');
-    const costCodeOptions = await page.locator('select[name="costCodeId"] option').allTextContents();
-    const excavationLabel = costCodeOptions.find((o) => o.includes("Excavation"));
-    await page.selectOption('select[name="costCodeId"]', { label: excavationLabel! });
+    // BudgetLineFields is a client component with a controlled <select> —
+    // interacting before it hydrates lets Playwright's selectOption land on
+    // the raw DOM, which React's first client render then silently reverts
+    // back to its initial (first-alphabetical) option under load. networkidle
+    // is a reasonable proxy for "hydrated" here.
+    await page.waitForLoadState("networkidle");
+    const excavationValue = await page.locator('select[name="costCodeId"] option', { hasText: "Excavation" }).getAttribute("value");
+    await page.selectOption('select[name="costCodeId"]', excavationValue!);
+    await expect(page.locator('select[name="costCodeId"]')).toHaveValue(excavationValue!);
     await page.fill('input[name="estimatedQty"]', "60");
     await page.fill('input[name="estimatedHours"]', "42");
     await page.click('button:has-text("Add bid line")');

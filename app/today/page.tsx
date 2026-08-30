@@ -10,29 +10,53 @@ const SEVERITY_CLASSES: Record<string, string> = {
   warning: "bg-amber-100 text-amber-700",
 };
 
-export default async function TodayPage() {
+export default async function TodayPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ all?: string }>;
+}) {
   const session = await requireSession();
-  const items = await getDailyCommand(session.companyId);
+  const { all } = await searchParams;
+  const allItems = await getDailyCommand(session.companyId);
+
+  // A PM's default view is their own jobs only — the same "give each role
+  // their own world" reasoning as the /field Foreman home, just for
+  // exceptions instead of assignments. ?all=1 opts back into the
+  // company-wide scan (what ADMIN always sees — an owner legitimately
+  // needs every project, not just the ones they personally PM).
+  const isMyJobsView = session.role === "PM" && all !== "1";
+  const items = isMyJobsView ? allItems.filter((i) => i.pmUserId === session.userId) : allItems;
   const critical = items.filter((i) => i.severity === "critical");
   const warning = items.filter((i) => i.severity === "warning");
 
   return (
     <div className="space-y-6 max-w-3xl">
       <div>
-        <Link href="/" className="text-sm text-blue-600 hover:underline">
+        <Link href={session.role === "PM" ? "/?view=command" : "/"} className="text-sm text-blue-600 hover:underline">
           &larr; Company command
         </Link>
-        <h1 className="text-2xl font-semibold mt-1">Company action center</h1>
+        <div className="flex items-center justify-between flex-wrap gap-2 mt-1">
+          <h1 className="text-2xl font-semibold">{isMyJobsView ? "My action center" : "Company action center"}</h1>
+          {session.role === "PM" && (
+            <Link href={isMyJobsView ? "/today?all=1" : "/today"} className="text-sm text-blue-600 hover:underline">
+              {isMyJobsView ? "Show every project →" : "Back to my jobs →"}
+            </Link>
+          )}
+        </div>
         <p className="text-slate-500 text-sm mt-1">
-          Everything across every project that needs attention today — what it is, why it matters, the impact of
-          leaving it, what to do, who owns it, and when it&apos;s due. Deterministic, not AI-ranked: critical
-          exceptions first, then everything else.
+          {isMyJobsView
+            ? "Everything on your own projects that needs attention today"
+            : "Everything across every project that needs attention today"}{" "}
+          — what it is, why it matters, the impact of leaving it, what to do, who owns it, and when it&apos;s due.
+          Deterministic, not AI-ranked: critical exceptions first, then everything else.
         </p>
       </div>
 
       {items.length === 0 ? (
         <p className="text-slate-500 text-sm bg-white border rounded-lg p-6">
-          Nothing needs your attention right now — every job is clean.
+          {isMyJobsView
+            ? "Nothing needs your attention on your projects right now — every one of them is clean."
+            : "Nothing needs your attention right now — every job is clean."}
         </p>
       ) : (
         <div className="space-y-6">

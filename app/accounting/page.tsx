@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { scopedPrisma } from "@/lib/tenant";
 import { setAccountingMapping, setCostCodeGlCode } from "@/lib/accounting-actions";
 import { requirePageRole } from "@/lib/session";
@@ -19,13 +20,18 @@ export default async function AccountingPage() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-semibold">Accounting</h1>
-        <p className="text-slate-500 text-sm mt-1">
-          GL code mapping used by each job&apos;s CSV export — set these once so exports are
-          ready to import into your accounting system (QuickBooks, Sage, Foundation, etc.)
-          without hand-remapping every time.
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">Accounting</h1>
+          <p className="text-slate-500 text-sm mt-1">
+            GL code mapping used by each job&apos;s CSV export — set these once so exports are
+            ready to import into your accounting system (QuickBooks, Sage, Foundation, etc.)
+            without hand-remapping every time.
+          </p>
+        </div>
+        <Link href="/cash" className="text-sm text-blue-600 hover:underline whitespace-nowrap">
+          AR/AP, retainage & needs action →
+        </Link>
       </div>
 
       <div className="space-y-3">

@@ -10,6 +10,7 @@ export type CommandItem = Alert & {
   actionLabel: string;
   owner: string;
   dueLabel: string;
+  pmUserId: string | null;
 };
 
 /** Category-level explanation of why this exception type matters — the
@@ -162,6 +163,7 @@ export async function getDailyCommand(companyId: string): Promise<CommandItem[]>
       actionHref: action.href(a.jobId),
       owner,
       dueLabel: dueLabel(a, job),
+      pmUserId: job?.pmUserId ?? null,
     };
   });
 }
