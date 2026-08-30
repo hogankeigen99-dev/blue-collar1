@@ -5,6 +5,8 @@ export const DEMO_ACCOUNTS = {
   admin: { email: "admin@crewsync.dev", password: "admin12345" },
   pm: { email: "pm@crewsync.dev", password: "pm12345678" },
   foreman: { email: "foreman@crewsync.dev", password: "foreman1234" },
+  estimator: { email: "estimator@crewsync.dev", password: "estimator1234" },
+  accounting: { email: "accounting@crewsync.dev", password: "accounting123" },
 } as const;
 
 export async function login(page: Page, account: keyof typeof DEMO_ACCOUNTS = "admin") {
