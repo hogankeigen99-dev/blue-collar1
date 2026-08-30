@@ -169,7 +169,7 @@ same historical-rate panel as an existing budget line, plus a "Mark Won" /
 
 ---
 
-### 3.2 Preconstruction — **Partial** (bid leveling now built)
+### 3.2 Preconstruction — **Built**
 
 **Exists.** `ProjectStage.PRECON` + stage-triggered checklist generation
 (`lib/checklist.ts`, `ChecklistTemplateItem`/`JobChecklistItem`) already
@@ -214,9 +214,21 @@ that's still being bid to the owner rarely has firm sub quotes yet anyway.
 emailing (invites are recorded, not sent), no document attachments per
 bid (the existing job-level `Document` model covers that if needed).
 
-**Still missing.** A constructability/permit-status field on the Job
-itself (today permit status would just be a checklist item with no
-structured "permit #, issued date, expiration" data).
+**Permit tracking — built.** `Job.permitNumber` / `permitIssuedDate` /
+`permitExpirationDate` — the structured field this section used to be
+missing, replacing the checklist-only "Confirm permit set" checkbox (which
+still exists as a task, but now points at real data instead of nothing).
+Editable from the job's "Edit command center" form. A `PERMIT_EXPIRED`
+exception (`lib/alerts.ts`) fires the same way `COI_EXPIRED` already does —
+critical once lapsed, warning inside a 30-day lookahead, only on jobs that
+aren't done yet — surfaced on the job's own Command Center and the company
+Action Center/Command Center exceptions.
+
+**Deliberately not modeled:** no separate permit-application workflow
+(status is a fact recorded once obtained, not a tracked approval process)
+and no per-permit-type breakdown (building/electrical/plumbing all share
+one field) — this app tracks whether the job is legally clear to work, not
+a permitting office's internal process.
 
 ---
 
@@ -415,7 +427,7 @@ general ledger itself (§4, non-goals). No changes proposed.
 
 ---
 
-### 3.12 Billing — **Built** (real progress billing); retainage release still missing
+### 3.12 Billing — **Built**
 
 **Exists.** `Invoice` (number, amount, date, DRAFT/SENT/PAID), the
 computed billing-readiness checklist (`lib/billing.ts`), and now real
@@ -440,12 +452,20 @@ SOV line billed past its scheduled value" — re-derived from the raw
 already refuses to create an over-100%-complete line. See
 `lib/invoice-actions.ts` and `app/jobs/[id]/invoices/new`.
 
-**Still missing.** Retainage *release* — the closeout billing event that
-pays out everything withheld across the job. Every seeded job that's
-fully closed out and paid was instead given 0% retainage, so the demo's
-"fully paid, fully closed" state stays honest without faking a release
-event this phase doesn't model. The right home for it is Phase 3's
-Closeout maturity below.
+**Retainage release — built.** The closeout billing event that pays out
+everything withheld across the job, modeled as one more pay application
+rather than a new record type: `lib/invoice-actions.ts`'s
+`releaseRetainage` finds every SOV line with retainage actually billed
+(SENT/PAID `InvoiceLine`s), and creates one `Invoice` whose lines carry
+zero new work (`amountThisPeriod: 0`) and *negative* `retainageWithheld` —
+the same `amountThisPeriod - retainageWithheld` formula that computes
+every other invoice's amount then bills exactly the released total, and
+`getRetainageSummary` (§3.13) nets straight back to zero once that invoice
+is itself SENT/PAID, with no separate "released" flag needed anywhere.
+Gated to jobs at CLOSEOUT/COMPLETE, and blocked a second time by checking
+for an existing negative-`retainageWithheld` line on the job — one release
+per contract. UI: a "Retainage held: $X — Release retainage" panel on
+`/jobs/[id]/invoices`, shown only once there's something to release.
 
 ---
 
@@ -474,9 +494,16 @@ getApAging(companyId)   -- INVOICED Subcontract rows (aged from
                             same four buckets
 getRetainageSummary(companyId)
   -- heldByOwner: sum(InvoiceLine.retainageWithheld) across SENT/PAID
-     invoices — what the owner is withholding from us, not yet released
+     invoices — what the owner is withholding from us, not yet released.
+     A release (§3.12) bills as a line with negative retainageWithheld,
+     so this already nets back to zero once that invoice is SENT/PAID —
+     no separate "released" filter needed.
   -- heldFromSubs: sum(actualAmount * retainagePct) across
-     INVOICED/PAID subcontracts — what we're withholding from subs
+     INVOICED/PAID, not-yet-released subcontracts — what we're
+     withholding from subs. A subcontract has no line-item billing
+     history to net a release against, so retainageReleasedAt (set by
+     lib/subcontract-actions.ts's releaseSubcontractRetainage, gated to
+     PAID subcontracts) excludes it explicitly instead.
 getCashForecast(companyId, weeks = 8)
   -- weekly net = projected AR collection minus projected AP payment,
      each outstanding row assumed to land on a Net-30 basis from its own
@@ -500,10 +527,18 @@ net-position tile group linking here. `app/jobs/[id]/materials`'s update
 form gained a "Paid" date field next to "Received" so marking a bill paid
 is a normal part of the existing materials workflow, not a separate flow.
 
-**Still missing.** Retainage *release* (carried over from §3.12 — the
-closeout event that pays out everything withheld remains unmodeled). No
-alerting on severely overdue AP/AR — this phase scoped to aging, forecast,
-and retainage visibility only, not a new exception type.
+**Severely-overdue AR/AP — built.** `AR_SEVERELY_OVERDUE`/
+`AP_SEVERELY_OVERDUE` (`lib/alerts.ts`), driven by the same 61/90-day
+boundary as this section's aging buckets: a SENT invoice, an INVOICED
+subcontract, or a received-but-unpaid material request outstanding 61+
+days is a warning, 90+ is critical. Unlike most alert types these aren't
+gated on the job being unfinished — money owed doesn't stop mattering
+because the project is COMPLETE — so they surface on `getAlerts`
+(company-wide, the Action Center) and per-job Command Centers regardless
+of stage; the Company Command Center's ("/", `lib/company-command.ts`)
+"Top exceptions" widget still excludes COMPLETE jobs the same way it
+already does for every other alert type, so a fully-closed job's overdue
+AR/AP shows on the Action Center rather than there.
 
 ---
 
@@ -511,11 +546,13 @@ and retainage visibility only, not a new exception type.
 
 **Exists.** `ProjectStage.CLOSEOUT`, `punchListComplete`/
 `requiredDocsComplete` flags, the CLOSEOUT-stage checklist, billing
-readiness gating on punch list + docs.
+readiness gating on punch list + docs, and now the retainage-release event
+itself (§3.12/§3.13) — both the owner-side release (one more pay
+application) and the sub-side release (`Subcontract.retainageReleasedAt`),
+each gated to a job/subcontract that's actually done.
 
-**Missing.** Warranty tracking and lien-waiver capture (both real
-compliance/liability items, not nice-to-haves) and the retainage-release
-trigger.
+**Missing.** Warranty tracking and lien-waiver capture — both real
+compliance/liability items, not nice-to-haves.
 
 **Target addition.**
 ```
@@ -523,10 +560,6 @@ Job additions: warrantyExpiresAt?
 Document gains a category for lien waivers (DocumentCategory already
   supports adding one — LIEN_WAIVER — no structural change needed)
 ```
-
-**Automation.** Reaching `COMPLETE` already triggers benchmark recording
-(§3.15/existing) — extend the same trigger to flag retainage as
-releasable in the Cash view (§3.13) once final lien waivers are on file.
 
 ---
 

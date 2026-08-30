@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { scopedPrisma } from "@/lib/tenant";
-import { updateInvoiceStatus } from "@/lib/invoice-actions";
+import { updateInvoiceStatus, releaseRetainage } from "@/lib/invoice-actions";
 import { requireSession } from "@/lib/session";
 import { canManageEstimates } from "@/lib/auth";
 import { getBillingReadiness } from "@/lib/billing";
@@ -44,6 +44,12 @@ export default async function InvoicesPage({
 
   const canEdit = canManageEstimates(session.role);
   const total = invoices.reduce((s, i) => s + (i.status === "SENT" || i.status === "PAID" ? i.amount : 0), 0);
+  const billedInvoices = invoices.filter((i) => i.status === "SENT" || i.status === "PAID");
+  const retainageHeld = billedInvoices.reduce(
+    (s, i) => s + i.lines.reduce((ls, l) => ls + l.retainageWithheld, 0),
+    0
+  );
+  const canReleaseRetainage = (job.stage === "CLOSEOUT" || job.stage === "COMPLETE") && retainageHeld > 0;
 
   return (
     <div className="space-y-6">
@@ -124,6 +130,28 @@ export default async function InvoicesPage({
         </div>
       )}
 
+      {retainageHeld > 0 && (
+        <div className="bg-white border rounded-lg p-4 flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <div className="text-sm font-medium">Retainage held: {formatMoney(retainageHeld)}</div>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {canReleaseRetainage
+                ? "This job is at Closeout — release retainage to bill the owner for everything withheld."
+                : "Retainage releases once this job reaches Closeout."}
+            </p>
+          </div>
+          {canEdit && canReleaseRetainage && (
+            <form action={releaseRetainage} className="flex items-center gap-2">
+              <input type="hidden" name="jobId" value={job.id} />
+              <input type="hidden" name="date" value={new Date().toISOString().slice(0, 10)} />
+              <button type="submit" className="bg-slate-900 text-white text-sm px-4 py-2 rounded-md hover:bg-slate-700">
+                Release retainage
+              </button>
+            </form>
+          )}
+        </div>
+      )}
+
       <div className="space-y-2">
         <h2 className="text-lg font-medium">Pay applications</h2>
         {invoices.length === 0 ? (
@@ -167,6 +195,7 @@ export default async function InvoicesPage({
                       <div key={l.id}>
                         {l.contractLine.description} — {l.pctCompleteToDate.toFixed(0)}% complete, {formatMoney(l.amountThisPeriod)} earned
                         {l.retainageWithheld > 0 ? `, ${formatMoney(l.retainageWithheld)} retainage withheld` : ""}
+                        {l.retainageWithheld < 0 ? `, ${formatMoney(-l.retainageWithheld)} retainage released` : ""}
                       </div>
                     ))}
                   </div>

@@ -143,9 +143,15 @@ export type RetainageSummary = {
 };
 
 /**
- * Retainage held on each side — not a release schedule (retainage release
- * remains unmodeled, same limitation carried from the Contract/SOV phase),
- * just what's currently being withheld.
+ * Retainage currently held on each side. Released retainage nets itself out
+ * automatically: on the AR side a release is billed as an ordinary invoice
+ * line with negative retainageWithheld (lib/invoice-actions.ts's
+ * releaseRetainage), so summing every SENT/PAID line already lands back at
+ * zero once that invoice is sent — no separate "released" filter needed. On
+ * the AP side a subcontract has no line-item billing history to net
+ * against, so a released one is excluded explicitly via
+ * Subcontract.retainageReleasedAt (lib/subcontract-actions.ts's
+ * releaseSubcontractRetainage).
  */
 export async function getRetainageSummary(companyId: string): Promise<RetainageSummary> {
   const prisma = scopedPrisma(companyId);
@@ -157,7 +163,12 @@ export async function getRetainageSummary(companyId: string): Promise<RetainageS
       select: { retainageWithheld: true },
     }),
     prisma.subcontract.findMany({
-      where: { status: { in: ["INVOICED", "PAID"] }, retainagePct: { not: null }, jobId: { in: jobIds } },
+      where: {
+        status: { in: ["INVOICED", "PAID"] },
+        retainagePct: { not: null },
+        retainageReleasedAt: null,
+        jobId: { in: jobIds },
+      },
       select: { actualAmount: true, retainagePct: true },
     }),
   ]);

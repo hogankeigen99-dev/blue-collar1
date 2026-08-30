@@ -155,11 +155,14 @@ Command Center are never two different calculations of the same thing.
   typed — `Invoice.amount` is `sum(InvoiceLine.amountThisPeriod) -
   sum(InvoiceLine.retainageWithheld)`, and billing readiness gained a "no
   SOV line billed past its scheduled value" check, re-derived from the raw
-  billing records rather than trusted. Retainage *release* (the closeout
-  event that pays out everything withheld) isn't modeled yet — every
-  seeded job that's fully closed out and paid was instead given 0%
-  retainage, so the demo's "fully paid" jobs stay honest rather than
-  faking a release event.
+  billing records rather than trusted. Retainage *release* — the closeout
+  event that pays out everything withheld — is now real, modeled as one
+  more pay application: `lib/invoice-actions.ts`'s `releaseRetainage`
+  (a "Release retainage" button on `/jobs/[id]/invoices`, gated to a job
+  at Closeout/Complete) creates an `Invoice` whose lines carry zero new
+  work and *negative* `retainageWithheld`, so the same computed-amount
+  formula bills exactly what's owed back and `getRetainageSummary` nets
+  itself to zero once that invoice is sent — no separate release flag.
 - **Vendors & subcontracts** (`/vendors`, `lib/vendors.ts`) — a real
   vendor/subcontractor master record instead of a free-text name typed
   fresh on every material request or subcontractor line, so "how much have
@@ -175,7 +178,11 @@ Command Center are never two different calculations of the same thing.
   is found-or-created inline the moment its name is typed on the
   material-request, subcontract, or Award forms — the same pattern already
   used for a new `Customer` at Award time, no second "go create the
-  vendor" trip.
+  vendor" trip. A subcontract's own retainage can be released once it's
+  fully `PAID` (`lib/subcontract-actions.ts`'s `releaseSubcontractRetainage`,
+  a button on `/jobs/[id]/subcontracts`) — unlike the owner-side release
+  above, a subcontract has no line-item billing history to net against, so
+  this sets `retainageReleasedAt` explicitly instead.
 - **Cash** (`/cash`, `lib/cash.ts`) — company-wide AR/AP aging (0-30/
   31-60/61-90/90+), a retainage summary both directions, and an 8-week
   cash forecast, computed live over `Invoice`/`Subcontract`/
@@ -189,7 +196,17 @@ Command Center are never two different calculations of the same thing.
   documented simplification — Net-30 from each row's own aging date, not
   a schedule-driven projection, since `SchedulePhase`-level target billing
   dates don't exist yet. The Company Command Center carries an AR/AP/
-  net-position tile group linking here.
+  net-position tile group linking here. This section's own 61/90-day aging
+  boundary now also drives `lib/alerts.ts`'s `AR_SEVERELY_OVERDUE`/
+  `AP_SEVERELY_OVERDUE` exceptions — company Action Center and per-job
+  Command Center, regardless of the job's stage (money owed doesn't stop
+  mattering once a project is done).
+- **Permit tracking** (`Job.permitNumber`/`permitIssuedDate`/
+  `permitExpirationDate`, editable from a job's "Edit command center"
+  form) — replaces the old checklist-only "Confirm permit set" checkbox
+  with real structured data, and drives a `PERMIT_EXPIRED` exception the
+  same way `COI_EXPIRED` already works: critical once lapsed, warning
+  inside a 30-day lookahead, only on jobs that aren't done.
 - **Bid packages** (`/jobs/[id]/bid-packages`, `lib/subbids.ts`) —
   subcontractor bid leveling: a scope of work goes out to multiple subs
   (`BidPackage`), each invited sub gets a real `Vendor` record
@@ -304,7 +321,16 @@ still-open package's bids sort cheapest-first with exclusions visible for
 comparison; and the full live flow — create a package, invite a
 found-or-created vendor, record a quote with scope notes and exclusions,
 select the winner — produces a real `Subcontract` with no re-entry, whose
-committed cost shows up on the job's own cost table immediately. One more
+committed cost shows up on the job's own cost table immediately. The three
+"fix the gaps" additions have their own suite too
+(`tests/e2e/closeout-gaps.spec.ts`): an expired permit is a critical
+exception and one expiring soon is a warning, while a healthy permit
+raises none; a fully closed-out job shows its retainage was actually
+released (not just zeroed out) on both the owner side and a subcontract's
+side; a job still holding retainage at Closeout can release it live from
+the invoices page — a real pay application with no re-entry; and a
+severely overdue pay application is a critical exception on its own job
+and shows up on the company Action Center. One more
 suite runs the whole connected lifecycle end to end in a single test
 (`tests/e2e/z-full-operating-system.spec.ts`, deliberately named to run
 last — it wins an Opportunity and completes a Job, which moves company-wide
@@ -439,9 +465,10 @@ Cash.
   silently allowed.
 - **Subcontracts** (`/jobs/[id]/subcontracts`): a real subcontract
   agreement per vendor per job — committed vs. actual, retainage %, an
-  agreement lifecycle (draft → executed → closed), and a COI expiration
+  agreement lifecycle (draft → executed → closed), a COI expiration
   date that actually drives an exception if it lapses on a job still
-  running.
+  running, and a "Release retainage" action once the subcontract is
+  fully paid.
 - **Billing readiness**: a computed checklist per job — completion, approved
   change orders, required documents, recent field reports, punch list, no
   missing costs, and no Schedule of Values line billed past its scheduled
@@ -453,7 +480,9 @@ Cash.
   "Billed to date" everywhere in the app is computed from these
   (`Invoice.amount = sum(InvoiceLine.amountThisPeriod) -
   sum(InvoiceLine.retainageWithheld)`), not a manually-typed running
-  total.
+  total. At Closeout/Complete, a "Release retainage" action bills one more
+  pay application — zero new work, negative retainage — that pays out
+  everything withheld across the SOV.
 - **Accounting handoff** (`/accounting`): maps each cost category and cost
   code to your accounting system's GL code, then every job has a one-click
   **CSV export** (labor/material/equipment/subcontractor actuals, approved
@@ -520,6 +549,11 @@ Cash.
   closeout" chain already live: exception alerts are the automated overrun/
   risk detection, and billing readiness is the automated "is the billing
   package ready" check.
+- **Permit tracking**: a structured permit number, issued date, and
+  expiration date on the job (editable from "Edit command center"),
+  replacing a checklist-only "confirm permit set" checkbox with real data.
+  Feeds a `PERMIT_EXPIRED` exception — critical once lapsed, warning inside
+  a 30-day lookahead — on any job that isn't done yet.
 - **Documents** (`/jobs/[id]/documents`): drawings, contracts, RFIs,
   submittals, field photos, safety docs, closeout files, and warranties,
   categorized and living against the job record — any signed-in role can
@@ -748,8 +782,10 @@ lib/job-costing.ts              Estimated/committed/actual/projected cost rollup
 lib/billing.ts                  Billing-readiness checklist computation, incl. "no SOV line
                                  billed past its scheduled value"
 lib/alerts.ts                   Exception-alert scan across all jobs, surfaced on /today + dashboard
+                                 -- includes PERMIT_EXPIRED and AR/AP_SEVERELY_OVERDUE
 lib/format.ts                   Shared money/date formatting + stage/category labels
-lib/command-center-actions.ts   Server Actions for job command-center fields + category budgets
+lib/command-center-actions.ts   Server Actions for job command-center fields (incl. permit number/
+                                 issued/expiration dates) + category budgets
 lib/award-actions.ts            Server Action for the one-pass "award a project" flow (/jobs/new)
 lib/job-number.ts               Next "{year}-{seq}" project number per company
 lib/project-health.ts           Consolidated Command Center data (schedule %/production %/labor
@@ -810,7 +846,9 @@ lib/contract.ts                 Read layer: getContract() (SOV lines + billed-to
 lib/contract-actions.ts         Server Actions: updateContract (type/retainage/executed date),
                                  addContractLine/deleteContractLine (manual SOV lines)
 lib/invoice-actions.ts          createPayApplication -- one InvoiceLine per billed SOV line,
-                                 amount/retainage computed from cumulative % complete, never typed
+                                 amount/retainage computed from cumulative % complete, never typed.
+                                 releaseRetainage -- the closeout billing event: one more pay
+                                 application with zero new work and negative retainageWithheld
 lib/invoice-number.ts           Next "INV-{jobNumber}-{seq}" pay-application number per job
 app/jobs/[id]/contract/         View/edit the Contract & Schedule of Values
 app/jobs/[id]/invoices/new/pay-app-lines.tsx  Client component: live-computed amount/retainage
@@ -825,7 +863,9 @@ lib/vendor-actions.ts           Server Actions: createVendor, updateVendor
 lib/subcontract-actions.ts      Server Actions: createSubcontract, updateSubcontract (billing
                                  status, agreement status, actual amount, COI expiration) --
                                  renamed from lib/subcontractor-actions.ts as part of promoting
-                                 SubcontractorCost into Subcontract
+                                 SubcontractorCost into Subcontract. releaseSubcontractRetainage --
+                                 sets retainageReleasedAt once a PAID subcontract's retainage is
+                                 paid out (no line-item history to net against, unlike the AR side)
 app/vendors/                    Vendor directory, new-vendor form, vendor detail (linked
                                  subcontracts + material requests)
 app/jobs/[id]/subcontracts/     Subcontract list + new-subcontract form -- promoted out of the
@@ -834,9 +874,10 @@ app/jobs/[id]/subcontracts/     Subcontract list + new-subcontract form -- promo
 
 --- Cash ---
 lib/cash.ts                     Read layer: getArAging/getApAging (0-30/31-60/61-90/90+ buckets),
-                                 getRetainageSummary (both directions), getCashForecast (8-week,
-                                 Net-30 assumption from each row's own aging date) -- a computed
-                                 rollup, no new ledger
+                                 getRetainageSummary (both directions -- nets a released Invoice
+                                 line to zero automatically; excludes a released Subcontract via
+                                 retainageReleasedAt), getCashForecast (8-week, Net-30 assumption
+                                 from each row's own aging date) -- a computed rollup, no new ledger
 app/cash/                       AR/AP aging tables, retainage summary, 8-week forecast -- company-
                                  wide, ADMIN/PM only
 

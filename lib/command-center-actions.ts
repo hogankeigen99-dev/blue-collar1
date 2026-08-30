@@ -32,6 +32,9 @@ export async function updateJobCommandCenter(formData: FormData) {
   const newStage = str(formData, "stage");
   const divisionId = str(formData, "divisionId");
   const projectType = str(formData, "projectType");
+  const permitNumber = str(formData, "permitNumber");
+  const permitIssued = str(formData, "permitIssuedDate");
+  const permitExpiration = str(formData, "permitExpirationDate");
 
   const before = await prisma.job.findFirstOrThrow({ where: { id: jobId }, select: { stage: true, contractValue: true } });
 
@@ -56,6 +59,9 @@ export async function updateJobCommandCenter(formData: FormData) {
       punchListComplete: formData.get("punchListComplete") === "on",
       requiredDocsComplete: formData.get("requiredDocsComplete") === "on",
       projectType: projectType ?? null,
+      permitNumber: permitNumber ?? null,
+      permitIssuedDate: permitIssued ? new Date(permitIssued) : null,
+      permitExpirationDate: permitExpiration ? new Date(permitExpiration) : null,
     },
   });
 

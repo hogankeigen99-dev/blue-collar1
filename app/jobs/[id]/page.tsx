@@ -160,6 +160,11 @@ export default async function JobDetailPage({
           />
           <Stat label="Schedule %" value={pct(health.schedulePct)} />
           <Stat label="Production %" value={pct(health.productionPct)} />
+          <Stat
+            label="Permit"
+            value={health.permitNumber ? `${health.permitNumber} (exp. ${formatDate(health.permitExpirationDate)})` : "Not on file"}
+            danger={health.permitExpired}
+          />
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 text-sm border-t pt-4">

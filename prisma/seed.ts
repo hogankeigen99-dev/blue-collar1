@@ -116,6 +116,45 @@ async function seedPayApplication(params: {
   });
 }
 
+/** Releases every dollar of retainage currently withheld on a contract's SOV
+ * lines — the same "one more pay application, negative retainageWithheld"
+ * shape as lib/invoice-actions.ts's releaseRetainage, run directly against
+ * Prisma since seed data has no request/session to call the server action
+ * through. Only meant to be called on a contract whose pay apps are already
+ * seeded (so `lines` carry their real billed retainage). */
+async function seedRetainageRelease(params: { jobId: string; contractId: string; invoiceNumber: string; date: Date }) {
+  const lines = await prisma.contractLine.findMany({
+    where: { contractId: params.contractId },
+    include: { invoiceLines: true },
+  });
+  const lineData = lines
+    .map((l) => {
+      const held = round2(l.invoiceLines.reduce((s, il) => s + il.retainageWithheld, 0));
+      const pctToDate = l.invoiceLines.reduce((max, il) => Math.max(max, il.pctCompleteToDate), 0);
+      return { contractLineId: l.id, held, pctToDate };
+    })
+    .filter((l) => l.held > 0)
+    .map((l) => ({
+      contractLineId: l.contractLineId,
+      pctCompleteThisPeriod: 0,
+      pctCompleteToDate: l.pctToDate,
+      amountThisPeriod: 0,
+      retainageWithheld: -l.held,
+    }));
+  const amount = round2(lineData.reduce((s, l) => s + l.amountThisPeriod - l.retainageWithheld, 0));
+  return prisma.invoice.create({
+    data: {
+      jobId: params.jobId,
+      invoiceNumber: params.invoiceNumber,
+      date: params.date,
+      status: "PAID",
+      amount,
+      notes: "Retainage release",
+      lines: { create: lineData },
+    },
+  });
+}
+
 async function main() {
   // Two companies so multi-tenant isolation is demonstrable out of the box —
   // logging in as one company's users must never surface the other's data.
@@ -332,12 +371,11 @@ async function main() {
       submittedById: frank.id,
     },
   });
-  // Closed out and fully paid — no retainage held back (already released,
-  // which this app doesn't model the release event for, so simplest to
-  // just not withhold any here and keep the "fully paid, fully closed"
-  // story internally consistent).
+  // Closed out and fully paid, including a real retainage release — the
+  // full AR-side closeout billing event (lib/invoice-actions.ts's
+  // releaseRetainage), not just a 0%-retainage workaround.
   const harborContract = await seedContract(harborFoundation.id, 310000, {
-    retainagePct: 0,
+    retainagePct: 10,
     executedDate: new Date("2026-06-20"),
   });
   await seedPayApplication({
@@ -345,8 +383,14 @@ async function main() {
     invoiceNumber: "INV-1001",
     date: new Date("2026-07-16"),
     status: "PAID",
-    retainagePct: 0,
+    retainagePct: 10,
     lines: harborContract.lines.map((l) => ({ contractLineId: l.id, scheduledValue: l.scheduledValue, priorPct: 0, newPct: 100 })),
+  });
+  await seedRetainageRelease({
+    jobId: harborFoundation.id,
+    contractId: harborContract.contract.id,
+    invoiceNumber: "INV-1002",
+    date: new Date("2026-07-30"),
   });
   // Estimate/actual closed loop: the at-completion benchmark a real
   // COMPLETE transition (lib/command-center-actions.ts) would have
@@ -387,6 +431,12 @@ async function main() {
       targetStartDate: new Date("2026-08-10"),
       targetEndDate: new Date("2026-09-25"),
       stage: "ACTIVE",
+      // Permit lapsed mid-construction — the PERMIT_EXPIRED alert this feeds
+      // (lib/alerts.ts) is meant to catch exactly this before an inspector
+      // does.
+      permitNumber: "RVA-2026-0142",
+      permitIssuedDate: new Date("2025-08-20"),
+      permitExpirationDate: new Date("2026-08-25"),
     },
   });
   await generateChecklistForStage(prisma, riverside2.id, "PRECON");
@@ -661,6 +711,12 @@ async function main() {
       targetStartDate: projectStart,
       targetEndDate: projectEnd,
       stage: "ACTIVE",
+      // Expiring soon but not yet lapsed — the PERMIT_EXPIRED alert's
+      // warning tier (30-day lookahead), distinct from Riverside's already-
+      // expired critical case above.
+      permitNumber: "MPL-2026-0087",
+      permitIssuedDate: addDays(today, -300),
+      permitExpirationDate: addDays(today, 12),
     },
   });
 
@@ -1162,13 +1218,18 @@ async function main() {
       status: "PAID",
       agreementStatus: "CLOSED",
       executedDate: cedarStart,
+      retainagePct: 8,
+      // AP-side closeout retainage release (lib/subcontract-actions.ts's
+      // releaseSubcontractRetainage) — already paid out, not just held.
+      retainageReleasedAt: addDays(cedarStart, 10),
     },
   });
 
-  // Closed out and fully paid — same no-retainage-held reasoning as Harbor
-  // View Foundation above.
+  // Closed out and fully paid, including a real retainage release — same
+  // full closeout event as Harbor View Foundation above, not a
+  // 0%-retainage workaround.
   const cedarContract = await seedContract(cedarCourt.id, 28500, {
-    retainagePct: 0,
+    retainagePct: 8,
     executedDate: addDays(cedarStart, -5),
     extraLines: [{ description: `CO: ${cedarIrrigationCO.title}`, scheduledValue: 2200, sourceChangeOrderId: cedarIrrigationCO.id }],
   });
@@ -1177,8 +1238,14 @@ async function main() {
     invoiceNumber: "INV-3001",
     date: new Date("2026-08-11"),
     status: "PAID",
-    retainagePct: 0,
+    retainagePct: 8,
     lines: cedarContract.lines.map((l) => ({ contractLineId: l.id, scheduledValue: l.scheduledValue, priorPct: 0, newPct: 100 })),
+  });
+  await seedRetainageRelease({
+    jobId: cedarCourt.id,
+    contractId: cedarContract.contract.id,
+    invoiceNumber: "INV-3002",
+    date: addDays(cedarStart, 12),
   });
 
   // Cedar Court is COMPLETE, so its finished cost-code lines join the
@@ -1603,6 +1670,11 @@ async function main() {
       targetStartDate: addDays(today, 10),
       targetEndDate: addDays(today, 55),
       stage: "PRECON",
+      // Permit already in hand, well ahead of mobilization and nowhere
+      // near expiring — the healthy baseline case (no alert).
+      permitNumber: "HBV-2026-0311",
+      permitIssuedDate: addDays(today, -20),
+      permitExpirationDate: addDays(today, 365),
     },
   });
   await prisma.jobCostCode.create({

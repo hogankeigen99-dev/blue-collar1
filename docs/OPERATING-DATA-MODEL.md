@@ -50,11 +50,20 @@ the same shape before wiring a second consumer to it.
   path creates a `Job`.
 - **Updated by:** `lib/command-center-actions.ts` (`updateJobCommandCenter`)
   — contract value, PM, foreman, division, dates, stage, project type,
-  punch-list/docs flags. All other job-adjacent writes (materials, change
-  orders, daily reports, ...) update their own child records, never `Job`
-  fields directly.
+  punch-list/docs flags, and permit number/issued/expiration dates. All
+  other job-adjacent writes (materials, change orders, daily reports, ...)
+  update their own child records, never `Job` fields directly.
 - **Consumed by:** literally everything else in this document.
 - **Live or snapshot:** live.
+
+**Permit tracking.** `Job.permitNumber`/`permitIssuedDate`/
+`permitExpirationDate` replaced the old checklist-only "Confirm permit
+set" checkbox with real, structured data. `lib/alerts.ts`'s
+`PERMIT_EXPIRED` reads `permitExpirationDate` the same way `COI_EXPIRED`
+reads a `Subcontract.coiExpirationDate` — critical once lapsed, warning
+inside a 30-day lookahead, only on jobs that aren't done. No new model:
+three nullable fields on `Job`, editable from the same "Edit command
+center" form as everything else above.
 
 ### Customer
 
@@ -268,14 +277,27 @@ the same shape before wiring a second consumer to it.
 - **Updated by:** `updateSubcontract` — billing status, agreement status,
   actual amount, COI expiration date. Executing it for the first time
   (`agreementStatus` → `EXECUTED`) records `executedDate` automatically;
-  never a separate typed field.
+  never a separate typed field. `releaseSubcontractRetainage` sets
+  `retainageReleasedAt` — gated to `status: PAID` and only once (throws if
+  already set).
 - **Consumed by:** job costing (committed/actual subcontractor cost,
   unchanged), the Vendor directory, and — the genuinely new consumer —
   `lib/alerts.ts`'s `COI_EXPIRED` check: an `EXECUTED` subcontract on a
   still-open job whose certificate of insurance has lapsed or is about to
   is a real compliance/liability gap, not a decorative field. A `DRAFT`
   agreement (work hasn't started) or `CLOSED` one (already done) doesn't
-  trigger it.
+  trigger it. `retainageReleasedAt` is read by `lib/cash.ts`'s
+  `getRetainageSummary` (see §Cash below) to exclude a released
+  subcontract's retainage from `heldFromSubs`.
+- **Retainage release, AP side.** A subcontract's withheld retainage
+  (`actualAmount * retainagePct / 100`) has no line-item billing history
+  to net a release against the way `Invoice`/`InvoiceLine` does (see
+  §Invoice / pay application below), so it needs its own explicit
+  timestamp — `retainageReleasedAt` — rather than being computed away.
+  Set once, by `lib/subcontract-actions.ts`'s `releaseSubcontractRetainage`,
+  from `/jobs/[id]/subcontracts`'s per-subcontract "Release retainage"
+  button (shown only when `status: PAID`, `retainagePct` set, and not
+  already released).
 - **Live or snapshot:** live.
 
 ### Bid package / SubBid
@@ -402,13 +424,18 @@ the same shape before wiring a second consumer to it.
   value has one automatically.
 - **Consumed by:** job costing, the Company Financial View's invoiced
   rollup, the contract page's per-line billed-to-date/remaining.
-- **Deliberately out of scope this phase:** retainage *release* — the
-  final billing event that pays out what was withheld across the whole
-  job — isn't modeled. `docs/ARCHITECTURE.md`'s Phase 3 (Closeout
-  maturity) is the right eventual home for that prompt; every seeded job
-  that's fully closed out and paid was given 0% retainage instead, so the
-  "fully paid, fully closed" demo state stays honest without faking a
-  release event that doesn't exist yet.
+- **Retainage release, AR side.** `lib/invoice-actions.ts`'s
+  `releaseRetainage` (`/jobs/[id]/invoices`'s "Release retainage" button,
+  gated to `Job.stage: CLOSEOUT | COMPLETE`) creates one more `Invoice`:
+  for every `ContractLine` with retainage actually billed (summed across
+  its `SENT`/`PAID` `InvoiceLine`s), one new `InvoiceLine` with
+  `amountThisPeriod: 0` and *negative* `retainageWithheld` equal to what
+  was held. No new field, no release flag — the existing
+  `amountThisPeriod - retainageWithheld` formula bills exactly the
+  released total, and once that invoice is itself `SENT`/`PAID`,
+  `getRetainageSummary` below nets straight back to zero on its own. A
+  second release attempt is blocked by checking whether any
+  `InvoiceLine` on the job already has `retainageWithheld < 0`.
 
 ### Cash
 
@@ -427,11 +454,20 @@ the same shape before wiring a second consumer to it.
   `paidDate` still null, aged from `receivedDate ?? createdAt`.
 - **Retainage summary:** `heldByOwner` —
   `sum(InvoiceLine.retainageWithheld)` across `SENT`/`PAID` invoices, what
-  the owner hasn't released back to us yet. `heldFromSubs` —
-  `sum(actualAmount * retainagePct)` across `INVOICED`/`PAID`
-  subcontracts, what we're holding back from subs on work already billed.
-  Neither is a release schedule — retainage release stays unmodeled (see
-  §Invoice / pay application below).
+  the owner hasn't released back to us yet — already nets to zero after a
+  release (see §Invoice / pay application above), no extra filter needed.
+  `heldFromSubs` — `sum(actualAmount * retainagePct)` across
+  `INVOICED`/`PAID`, *not-yet-released* (`retainageReleasedAt: null`)
+  subcontracts, what we're holding back from subs on work already billed
+  (see §Subcontract above for why that side needs an explicit flag instead
+  of computing the release away).
+- **Severely-overdue AR/AP:** `lib/alerts.ts`'s `AR_SEVERELY_OVERDUE`/
+  `AP_SEVERELY_OVERDUE` reuse this section's own 61/90-day aging boundary
+  as a company- and job-level exception — a `SENT` invoice, `INVOICED`
+  subcontract, or received-but-unpaid material request outstanding 61+
+  days warns, 90+ is critical. Computed inline in `computeJobAlerts`
+  against the same rows/anchors as `getArAging`/`getApAging` above, not by
+  calling those company-wide functions per job.
 - **Forecast:** 8 weeks by default, `expectedIn`/`expectedOut` per week,
   built on one explicit, labeled simplification — each outstanding AR/AP
   row is assumed to collect/pay on a Net-30 basis from its own aging

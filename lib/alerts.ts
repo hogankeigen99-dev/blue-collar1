@@ -2,6 +2,7 @@ import { scopedPrisma } from "@/lib/tenant";
 import { computeProgress } from "@/lib/productivity";
 import { getJobCosting } from "@/lib/job-costing";
 import { getBillingReadiness } from "@/lib/billing";
+import { formatMoney } from "@/lib/format";
 import type { Prisma } from "@prisma/client";
 
 export type AlertType =
@@ -14,7 +15,10 @@ export type AlertType =
   | "BILLING_BLOCKER"
   | "MARGIN_RISK"
   | "EQUIPMENT_ISSUE"
-  | "COI_EXPIRED";
+  | "COI_EXPIRED"
+  | "PERMIT_EXPIRED"
+  | "AR_SEVERELY_OVERDUE"
+  | "AP_SEVERELY_OVERDUE";
 
 export type Alert = {
   type: AlertType;
@@ -35,12 +39,20 @@ export const ALERT_TYPE_LABEL: Record<AlertType, string> = {
   MARGIN_RISK: "Margin risk",
   EQUIPMENT_ISSUE: "Equipment issue",
   COI_EXPIRED: "COI expired",
+  PERMIT_EXPIRED: "Permit expired",
+  AR_SEVERELY_OVERDUE: "AR severely overdue",
+  AP_SEVERELY_OVERDUE: "AP severely overdue",
 };
 
 const DAY_MS = 86_400_000;
 const MARGIN_WARNING_PCT = 0.1;
 const EQUIPMENT_ISSUE_WINDOW_DAYS = 3;
 const COI_WARNING_DAYS = 30;
+const PERMIT_WARNING_DAYS = 30;
+// Same boundary as lib/cash.ts's "61-90" / "90+" aging buckets — an invoice
+// or payable outstanding 61+ days is flagged (warning), 90+ is critical.
+const OVERDUE_WARNING_DAYS = 61;
+const OVERDUE_CRITICAL_DAYS = 90;
 
 const jobWithAlertIncludes = {
   assignments: true,
@@ -50,6 +62,7 @@ const jobWithAlertIncludes = {
   materialRequests: true,
   changeOrders: true,
   subcontracts: { include: { vendor: true } },
+  invoices: { where: { status: "SENT" as const } },
 } satisfies Prisma.JobInclude;
 
 type JobForAlerts = Prisma.JobGetPayload<{ include: typeof jobWithAlertIncludes }>;
@@ -232,6 +245,75 @@ async function computeJobAlerts(
             : `${vendorName}'s certificate of insurance expires in ${daysToExpiry} day(s)`,
       });
     }
+  }
+
+  // Permit expired — a job's own permit has lapsed or is about to, while
+  // it's still actually running. Same shape as COI_EXPIRED just above, one
+  // record's date instead of every subcontract's.
+  if (notDone && job.permitExpirationDate) {
+    const daysToExpiry = Math.floor((job.permitExpirationDate.getTime() - now) / DAY_MS);
+    if (daysToExpiry <= PERMIT_WARNING_DAYS) {
+      alerts.push({
+        type: "PERMIT_EXPIRED",
+        severity: daysToExpiry < 0 ? "critical" : "warning",
+        jobId: job.id,
+        jobTitle: job.title,
+        message:
+          daysToExpiry < 0
+            ? `Permit ${job.permitNumber ?? ""} expired ${Math.abs(daysToExpiry)} day(s) ago`.trim()
+            : `Permit ${job.permitNumber ?? ""} expires in ${daysToExpiry} day(s)`.trim(),
+      });
+    }
+  }
+
+  // AR severely overdue — a billed pay application that's gone unpaid well
+  // past the point normal collection takes, same 61/90-day boundary as
+  // lib/cash.ts's "61-90"/"90+" aging buckets. Only SENT invoices matter —
+  // DRAFT hasn't gone out, PAID is resolved.
+  for (const inv of job.invoices) {
+    const daysOutstanding = Math.floor((now - inv.date.getTime()) / DAY_MS);
+    if (daysOutstanding < OVERDUE_WARNING_DAYS) continue;
+    alerts.push({
+      type: "AR_SEVERELY_OVERDUE",
+      severity: daysOutstanding >= OVERDUE_CRITICAL_DAYS ? "critical" : "warning",
+      jobId: job.id,
+      jobTitle: job.title,
+      message: `Invoice ${inv.invoiceNumber} (${formatMoney(inv.amount)}) has been outstanding ${daysOutstanding} days`,
+    });
+  }
+
+  // AP severely overdue — what we owe a sub or material vendor, unpaid well
+  // past normal terms. Same source rows and anchor dates as lib/cash.ts's
+  // getApAging (executedDate for an invoiced subcontract, receivedDate for a
+  // received-but-unpaid material request).
+  const invoicedSubs = job.subcontracts.filter((s) => s.status === "INVOICED");
+  for (const s of invoicedSubs) {
+    const anchor = s.executedDate ?? s.createdAt;
+    const daysOutstanding = Math.floor((now - anchor.getTime()) / DAY_MS);
+    if (daysOutstanding < OVERDUE_WARNING_DAYS) continue;
+    const vendorName = s.vendor?.name ?? "Subcontractor";
+    alerts.push({
+      type: "AP_SEVERELY_OVERDUE",
+      severity: daysOutstanding >= OVERDUE_CRITICAL_DAYS ? "critical" : "warning",
+      jobId: job.id,
+      jobTitle: job.title,
+      message: `${vendorName}'s invoice (${formatMoney(s.actualAmount)}) has been unpaid ${daysOutstanding} days`,
+    });
+  }
+  const unpaidMaterials = job.materialRequests.filter(
+    (m) => m.status === "RECEIVED" && m.totalCost !== null && m.paidDate === null
+  );
+  for (const m of unpaidMaterials) {
+    const anchor = m.receivedDate ?? m.createdAt;
+    const daysOutstanding = Math.floor((now - anchor.getTime()) / DAY_MS);
+    if (daysOutstanding < OVERDUE_WARNING_DAYS) continue;
+    alerts.push({
+      type: "AP_SEVERELY_OVERDUE",
+      severity: daysOutstanding >= OVERDUE_CRITICAL_DAYS ? "critical" : "warning",
+      jobId: job.id,
+      jobTitle: job.title,
+      message: `"${m.description}" (${formatMoney(m.totalCost ?? 0)}) has been unpaid ${daysOutstanding} days`,
+    });
   }
 
   // Billing blocker — jobs at closeout that aren't actually ready to invoice.

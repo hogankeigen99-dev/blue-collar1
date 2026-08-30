@@ -113,6 +113,103 @@ export async function createPayApplication(formData: FormData) {
   redirect(`/jobs/${jobId}/invoices`);
 }
 
+/**
+ * Retainage release — the closeout billing event that pays out everything
+ * withheld across the contract's Schedule of Values. Modeled as one more
+ * pay application (not a new record type): every SOV line with retainage
+ * actually held (SENT/PAID invoices only, same as lib/cash.ts's
+ * getRetainageSummary) gets a zero-new-work line whose retainageWithheld is
+ * negative — the same "amountThisPeriod minus retainageWithheld" formula
+ * that computes every other invoice's amount then bills exactly the
+ * released total. Once that invoice is itself SENT/PAID, getRetainageSummary
+ * nets straight back to zero with no separate release flag needed on either
+ * the Contract or the Invoice.
+ */
+export async function releaseRetainage(formData: FormData) {
+  const session = await requireRole("ADMIN", "PM");
+  const prisma = scopedPrisma(session.companyId);
+  const jobId = str(formData, "jobId");
+  const dateRaw = str(formData, "date");
+  if (!jobId || !dateRaw) throw new Error("Job and date are required");
+
+  // Invoice/Contract aren't tenant models — verify the job belongs to this
+  // company before creating anything against it.
+  const job = await prisma.job.findFirstOrThrow({ where: { id: jobId } });
+  if (job.stage !== "CLOSEOUT" && job.stage !== "COMPLETE") {
+    throw new Error("Retainage release is only available once a job reaches Closeout.");
+  }
+
+  const contract = await prisma.contract.findFirst({
+    where: { jobId },
+    include: { lines: { include: { invoiceLines: { include: { invoice: true } } } } },
+  });
+  if (!contract || contract.lines.length === 0) {
+    throw new Error("This job has no Schedule of Values to release retainage against.");
+  }
+
+  // A release invoice's own lines carry negative retainageWithheld — if one
+  // already exists, this job has already had its retainage released.
+  const alreadyReleased = await prisma.invoiceLine.findFirst({
+    where: { retainageWithheld: { lt: 0 }, invoice: { jobId } },
+  });
+  if (alreadyReleased) {
+    throw new Error("Retainage has already been released for this job.");
+  }
+
+  const lineData: {
+    contractLineId: string;
+    pctCompleteThisPeriod: number;
+    pctCompleteToDate: number;
+    amountThisPeriod: number;
+    retainageWithheld: number;
+  }[] = [];
+
+  for (const line of contract.lines) {
+    const billedLines = line.invoiceLines.filter((il) => il.invoice.status === "SENT" || il.invoice.status === "PAID");
+    const held = round2(billedLines.reduce((s, il) => s + il.retainageWithheld, 0));
+    if (held <= 0) continue;
+    const pctToDate = billedLines.reduce((max, il) => Math.max(max, il.pctCompleteToDate), 0);
+    lineData.push({
+      contractLineId: line.id,
+      pctCompleteThisPeriod: 0,
+      pctCompleteToDate: pctToDate,
+      amountThisPeriod: 0,
+      retainageWithheld: -held,
+    });
+  }
+
+  if (lineData.length === 0) {
+    throw new Error("No retainage is currently held on this job's Schedule of Values.");
+  }
+
+  const amount = round2(lineData.reduce((s, l) => s + l.amountThisPeriod - l.retainageWithheld, 0));
+  const invoiceNumber = await generateNextInvoiceNumber(prisma, jobId, job.jobNumber);
+
+  const invoice = await prisma.invoice.create({
+    data: {
+      jobId,
+      invoiceNumber,
+      amount,
+      date: new Date(dateRaw),
+      notes: "Retainage release",
+      lines: { create: lineData },
+    },
+  });
+
+  await logAudit(session, {
+    action: "invoice.retainage_released",
+    entityType: "Invoice",
+    entityId: invoice.id,
+    jobId,
+    detail: `${invoiceNumber} — ${amount} retainage released`,
+  });
+
+  revalidatePath(`/jobs/${jobId}/invoices`);
+  revalidatePath(`/jobs/${jobId}`);
+  revalidatePath("/cash");
+  redirect(`/jobs/${jobId}/invoices`);
+}
+
 export async function updateInvoiceStatus(formData: FormData) {
   const session = await requireRole("ADMIN", "PM");
   const prisma = scopedPrisma(session.companyId);

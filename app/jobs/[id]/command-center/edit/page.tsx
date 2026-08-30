@@ -139,6 +139,36 @@ export default async function EditCommandCenterPage({
           </select>
         </div>
 
+        <div className="border-t pt-4 space-y-3">
+          <label className="block text-sm font-medium">Permit</label>
+          <input
+            name="permitNumber"
+            defaultValue={job.permitNumber ?? ""}
+            placeholder="Permit number"
+            className="w-full border rounded-md px-3 py-2 text-sm"
+          />
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Issued</label>
+              <input
+                name="permitIssuedDate"
+                type="date"
+                defaultValue={toDateInputValue(job.permitIssuedDate)}
+                className="w-full border rounded-md px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Expires</label>
+              <input
+                name="permitExpirationDate"
+                type="date"
+                defaultValue={toDateInputValue(job.permitExpirationDate)}
+                className="w-full border rounded-md px-3 py-2 text-sm"
+              />
+            </div>
+          </div>
+        </div>
+
         <p className="text-xs text-slate-500">
           Billed to date is no longer set here — it&apos;s computed from this job&apos;s{" "}
           <Link href={`/jobs/${job.id}/invoices`} className="text-blue-600 hover:underline">

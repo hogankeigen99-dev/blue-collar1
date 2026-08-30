@@ -26,6 +26,9 @@ const WHY: Record<AlertType, string> = {
   MARGIN_RISK: "Projected profitability on this job has slipped below a healthy margin.",
   EQUIPMENT_ISSUE: "A piece of equipment is having a problem that can slow or stop the crew.",
   COI_EXPIRED: "A subcontractor's certificate of insurance has lapsed or is about to — a real compliance/liability gap.",
+  PERMIT_EXPIRED: "The job's permit has lapsed or is about to — work can be stopped by the AHJ if it isn't current.",
+  AR_SEVERELY_OVERDUE: "A pay application has gone unpaid well past normal collection time.",
+  AP_SEVERELY_OVERDUE: "A sub or vendor is owed money well past normal payment terms.",
 };
 
 /** What happens if this exception is left unaddressed — the forward-looking
@@ -41,6 +44,9 @@ const IMPACT: Record<AlertType, string> = {
   MARGIN_RISK: "This job may finish at a loss or far below target profit.",
   EQUIPMENT_ISSUE: "Can slow or fully stop today's work if it's not addressed.",
   COI_EXPIRED: "Work performed without valid coverage exposes the company to uninsured claims.",
+  PERMIT_EXPIRED: "Continuing work on an expired permit risks a stop-work order and re-inspection delays.",
+  AR_SEVERELY_OVERDUE: "The longer this sits, the more it strains cash flow and the harder it gets to collect.",
+  AP_SEVERELY_OVERDUE: "Risk of damaging the vendor/sub relationship or losing priority on future work.",
 };
 
 const ACTION: Record<AlertType, { label: string; text: string; href: (jobId: string) => string }> = {
@@ -92,6 +98,21 @@ const ACTION: Record<AlertType, { label: string; text: string; href: (jobId: str
   COI_EXPIRED: {
     label: "Get a current COI",
     text: "Contact the subcontractor for an updated certificate of insurance before more work is performed.",
+    href: (jobId) => `/jobs/${jobId}/subcontracts`,
+  },
+  PERMIT_EXPIRED: {
+    label: "Renew the permit",
+    text: "File for renewal or re-inspection with the permitting authority before more work is performed.",
+    href: (jobId) => `/jobs/${jobId}/command-center/edit`,
+  },
+  AR_SEVERELY_OVERDUE: {
+    label: "Follow up on payment",
+    text: "Call the owner/GC's accounting contact and confirm what's blocking payment.",
+    href: (jobId) => `/jobs/${jobId}/invoices`,
+  },
+  AP_SEVERELY_OVERDUE: {
+    label: "Process payment",
+    text: "Confirm the sub/vendor invoice is accurate and get it queued for payment.",
     href: (jobId) => `/jobs/${jobId}/subcontracts`,
   },
 };

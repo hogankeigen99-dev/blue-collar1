@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { scopedPrisma } from "@/lib/tenant";
-import { updateSubcontract } from "@/lib/subcontract-actions";
+import { updateSubcontract, releaseSubcontractRetainage } from "@/lib/subcontract-actions";
 import { requireSession } from "@/lib/session";
 import { canManageEstimates } from "@/lib/auth";
 import { formatMoney, formatDate } from "@/lib/format";
@@ -86,7 +86,11 @@ export default async function SubcontractsPage({
                   </div>
                   <div className="text-xs text-slate-500">
                     {c.description ?? "—"} · Committed {formatMoney(c.committedAmount)} · Actual {formatMoney(c.actualAmount)}
-                    {c.retainagePct !== null ? ` · Retainage ${c.retainagePct}%` : ""}
+                    {c.retainagePct !== null
+                      ? c.retainageReleasedAt
+                        ? ` · Retainage ${c.retainagePct}% released ${formatDate(c.retainageReleasedAt)}`
+                        : ` · Retainage ${c.retainagePct}% held`
+                      : ""}
                     {c.coiExpirationDate ? ` · COI expires ${formatDate(c.coiExpirationDate)}` : ""}
                   </div>
                 </div>
@@ -132,6 +136,16 @@ export default async function SubcontractsPage({
                   </div>
                   <button type="submit" className="bg-slate-900 text-white px-3 py-1.5 rounded-md hover:bg-slate-700">
                     Save
+                  </button>
+                </form>
+              )}
+
+              {canManage && c.status === "PAID" && c.retainagePct !== null && c.retainagePct > 0 && !c.retainageReleasedAt && (
+                <form action={releaseSubcontractRetainage} className="pt-2 border-t">
+                  <input type="hidden" name="id" value={c.id} />
+                  <input type="hidden" name="jobId" value={job.id} />
+                  <button type="submit" className="bg-white border text-xs px-3 py-1.5 rounded-md hover:bg-slate-50">
+                    Release {formatMoney(c.actualAmount * (c.retainagePct / 100))} retainage
                   </button>
                 </form>
               )}

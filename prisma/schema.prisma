@@ -426,6 +426,15 @@ model Job {
   // kind of work, distinct from Division (org/business-line grouping).
   projectType          String?
 
+  // Structured permit tracking — was previously only a "Confirm permit set"
+  // checklist checkbox with no underlying data (docs/ARCHITECTURE.md §3.2's
+  // one remaining Preconstruction gap). A real permit number and dates let
+  // lib/alerts.ts catch an expiring/expired permit the same way it already
+  // catches an expiring COI, instead of just a checked box.
+  permitNumber          String?
+  permitIssuedDate      DateTime?
+  permitExpirationDate  DateTime?
+
   assignments          JobAssignment[]
   costCodes            JobCostCode[]
   scheduleAssignments  ScheduleAssignment[]
@@ -840,6 +849,13 @@ model Subcontract {
   status            SubcontractorCostStatus    @default(COMMITTED)
   agreementStatus   SubcontractAgreementStatus @default(DRAFT)
   retainagePct      Float?
+  // When retainage withheld from this sub was actually paid out. Unlike the
+  // owner-side release (lib/cash.ts's getRetainageSummary derives that
+  // straight from InvoiceLine.retainageWithheld — no flag needed), a
+  // subcontract's retainage is a computed percentage with no line-item
+  // billing history to net a release against, so it needs an explicit
+  // marker to avoid double-counting it as still held.
+  retainageReleasedAt DateTime?
   // Certificate-of-insurance compliance — a real construction-specific gap
   // (lib/alerts.ts's COI_EXPIRED check reads this, not decorative).
   coiExpirationDate DateTime?

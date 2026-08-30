@@ -16,6 +16,10 @@ export type ProjectHealth = {
   pmName: string | null;
   foremanName: string | null;
   crew: string[]; // formally-assigned worker names
+  permitNumber: string | null;
+  permitIssuedDate: Date | null;
+  permitExpirationDate: Date | null;
+  permitExpired: boolean;
 
   // Timeline
   stage: string;
@@ -127,6 +131,10 @@ export async function getProjectHealth(companyId: string, jobId: string): Promis
     pmName: job.pm?.name ?? null,
     foremanName: job.foreman?.name ?? null,
     crew: job.assignments.map((a) => a.worker.name),
+    permitNumber: job.permitNumber,
+    permitIssuedDate: job.permitIssuedDate,
+    permitExpirationDate: job.permitExpirationDate,
+    permitExpired: job.permitExpirationDate !== null && job.permitExpirationDate.getTime() < Date.now() && job.stage !== "COMPLETE",
 
     stage: job.stage,
     status: job.status,
