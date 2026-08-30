@@ -1,8 +1,8 @@
 import { scopedPrisma } from "@/lib/tenant";
 import { computeProgress } from "@/lib/productivity";
 
-/** Fallback blended crew rate ($/hr) used only when neither the entry's worker nor any worker on the job has a laborRate set. */
-const DEFAULT_LABOR_RATE = 55;
+/** Fallback blended crew rate ($/hr) used only when neither the entry's worker nor any worker on the job has a laborRate set. Also reused by the Award form to suggest a labor $ budget from cost-code hours when no active worker has a rate. */
+export const DEFAULT_LABOR_RATE = 55;
 
 export type CategoryCosting = {
   category: "LABOR" | "MATERIAL" | "EQUIPMENT" | "SUBCONTRACTOR" | "OTHER";

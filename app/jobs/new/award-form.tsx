@@ -21,6 +21,7 @@ export default function AwardRepeatableSections({
   equipmentList,
   rates,
   initialCostCodeRows,
+  avgLaborRate,
 }: {
   costCodes: CostCodeOption[];
   equipmentList: EquipmentOption[];
@@ -29,6 +30,10 @@ export default function AwardRepeatableSections({
    * (app/jobs/new/page.tsx, ?opportunityId=) instead of the usual single
    * blank row — the estimate carries over, it isn't re-entered. */
   initialCostCodeRows?: { costCodeId: string; qty: string; hours: string }[];
+  /** Company-average active-worker $/hr, for suggesting the Labor budget
+   * from the cost-code hours below instead of a second, disconnected
+   * dollar guess. */
+  avgLaborRate: number;
 }) {
   const [costCodeRows, setCostCodeRows] = useState<CostCodeRow[]>(
     initialCostCodeRows && initialCostCodeRows.length > 0
@@ -38,10 +43,18 @@ export default function AwardRepeatableSections({
   const [materialRows, setMaterialRows] = useState<string[]>([]);
   const [equipmentRows, setEquipmentRows] = useState<string[]>([]);
   const [subRows, setSubRows] = useState<string[]>([]);
+  const [laborBudget, setLaborBudget] = useState("");
+  const [laborBudgetTouched, setLaborBudgetTouched] = useState(false);
 
   function updateRow(id: string, patch: Partial<CostCodeRow>) {
     setCostCodeRows((rows) => rows.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   }
+
+  const totalEstimatedHours = costCodeRows.reduce((s, r) => s + (Number(r.hours) || 0), 0);
+  const suggestedLaborBudget = totalEstimatedHours > 0 ? Math.round(totalEstimatedHours * avgLaborRate) : null;
+  // Keeps the suggestion live as cost-code hours change, right up until the
+  // PM types their own number in the field — then it stops overriding.
+  const displayedLaborBudget = !laborBudgetTouched && suggestedLaborBudget !== null ? String(suggestedLaborBudget) : laborBudget;
 
   return (
     <div className="space-y-6">
@@ -133,6 +146,56 @@ export default function AwardRepeatableSections({
               </div>
             );
           })}
+        </div>
+      </div>
+
+      {/* Budget by category */}
+      <div className="space-y-4">
+        <h3 className="text-sm font-semibold">Budget by category</h3>
+        <div className="grid grid-cols-3 gap-4">
+          <div>
+            <label className="block text-sm font-medium mb-1">Labor ($)</label>
+            <input
+              name="budget_LABOR"
+              type="number"
+              step="any"
+              value={displayedLaborBudget}
+              onChange={(e) => {
+                setLaborBudget(e.target.value);
+                setLaborBudgetTouched(true);
+              }}
+              className="w-full border rounded-md px-3 py-2 text-sm"
+            />
+            {suggestedLaborBudget !== null && (
+              <p className="text-xs text-slate-500 mt-1">
+                {totalEstimatedHours.toFixed(1)} cost-code hrs × ${avgLaborRate.toFixed(0)}/hr company avg = $
+                {suggestedLaborBudget}
+                {laborBudgetTouched ? (
+                  <>
+                    {" "}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLaborBudget(String(suggestedLaborBudget));
+                        setLaborBudgetTouched(false);
+                      }}
+                      className="text-blue-600 hover:underline"
+                    >
+                      Use this &rarr;
+                    </button>
+                  </>
+                ) : (
+                  " (applied — edit above to override)"
+                )}
+              </p>
+            )}
+          </div>
+          {(["MATERIAL", "EQUIPMENT", "SUBCONTRACTOR", "OTHER"] as const).map((cat) => (
+            <div key={cat}>
+              <label className="block text-sm font-medium mb-1 capitalize">{cat.toLowerCase()} ($)</label>
+              <input name={`budget_${cat}`} type="number" step="any" className="w-full border rounded-md px-3 py-2 text-sm" />
+            </div>
+          ))}
         </div>
       </div>
 

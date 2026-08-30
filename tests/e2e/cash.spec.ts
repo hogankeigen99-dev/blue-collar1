@@ -70,16 +70,15 @@ test.describe("Cash", () => {
     await row.locator('input[name="paidDate"]').fill("2026-08-28");
     await row.locator('button:has-text("Save")').click();
     await page.waitForURL(`${jobHref}/materials`);
-    // Force a hard navigation past the client router cache — the redirect
-    // target is the same route we already fetched once this test, and a
-    // soft nav back to it can otherwise render the pre-update RSC payload.
-    await page.reload();
-
-    bodyText = (await page.locator("body").innerText()).replace(/\s+/g, " ");
-    expect(bodyText).toContain("paid Aug 28, 2026");
+    // toContainText auto-retries — the redirect's URL can resolve slightly
+    // ahead of the server-rendered content it points to (same race as
+    // opportunity-pipeline.spec.ts's mark-lost/win flows), so a one-shot
+    // innerText() read right after the redirect can catch the pre-update
+    // render. A single reload isn't a reliable fix for that race; retrying
+    // the read is.
+    await expect(page.locator("body")).toContainText("paid Aug 28, 2026");
 
     await page.goto("/cash");
-    bodyText = (await page.locator("body").innerText()).replace(/\s+/g, " ");
-    expect(bodyText).not.toContain("Ready-mix concrete, 4000 PSI");
+    await expect(page.locator("body")).not.toContainText("Ready-mix concrete, 4000 PSI");
   });
 });

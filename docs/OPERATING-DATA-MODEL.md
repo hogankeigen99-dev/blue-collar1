@@ -309,17 +309,31 @@ the same shape before wiring a second consumer to it.
 - **Source of truth:** none stored — fully computed, every read, by
   `getJobCosting()` (`lib/job-costing.ts`) from `JobBudget`,
   `JobCostCode`+`ProductionEntry`, `MaterialRequest`,
-  `EquipmentAssignment`, `SubcontractorCost`, `ChangeOrder`, `Invoice`.
+  `EquipmentAssignment`, `Subcontract`, `ChangeOrder`, `Invoice`.
 - **Consumed by:** Command Center, `lib/project-health.ts`, now every
   company-wide financial view in this phase (Command Center rollup,
   Portfolio, Financials) — all of them call the same `getJobCosting()`
   per job rather than recomputing any of this independently.
+- **Finding (integration pass):** `JobBudget.estimatedAmount` per category
+  is typed once on the Award form, but LABOR's estimate was a raw dollar
+  guess with zero connection to the cost-code `estimatedHours` rows
+  entered on that same form — the same estimating intent expressed twice,
+  in two different units, with nothing tying them together. The Award
+  form (`app/jobs/new/award-form.tsx`) now suggests the Labor budget live
+  as `sum(cost-code estimatedHours) × company-average active-worker
+  $/hr` — applied automatically, edit the field to override — so the PM
+  isn't asked to separately guess a number the app can already derive.
+  MATERIAL/EQUIPMENT/SUBCONTRACTOR budgets stay independently typed on
+  purpose: unlike LABOR, they have their own initial-commitment rows on
+  the same form (materials/equipment/subs), but a category budget is
+  meant to be the full-project cap, not just what's entered at Award —
+  deriving it from the initial rows alone would understate it.
 
 ### Billing readiness
 
 - **Source of truth:** none stored — computed by `getBillingReadiness()`
   (`lib/billing.ts`) from `Job.stage`, `ChangeOrder`, `DailyReport`,
-  `MaterialRequest`, `SubcontractorCost`, `Job.punchListComplete`/
+  `MaterialRequest`, `Subcontract`, `Job.punchListComplete`/
   `requiredDocsComplete`, and now `Contract`/`ContractLine`/`InvoiceLine`
   for the "no SOV line billed past its scheduled value" check — re-derived
   from the raw `InvoiceLine` rows rather than trusted, even though

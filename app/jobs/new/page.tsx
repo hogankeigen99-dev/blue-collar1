@@ -2,6 +2,7 @@ import Link from "next/link";
 import { scopedPrisma } from "@/lib/tenant";
 import { awardProject } from "@/lib/award-actions";
 import { getAllCostCodeRatesMap } from "@/lib/productivity-benchmarks";
+import { DEFAULT_LABOR_RATE } from "@/lib/job-costing";
 import { requirePageRole } from "@/lib/session";
 import AwardRepeatableSections from "./award-form";
 
@@ -28,6 +29,13 @@ export default async function AwardProjectPage({
       : Promise.resolve(null),
   ]);
   const projectTypes = projectTypeRows.map((j) => j.projectType!).sort();
+  // Same fallback job-costing.ts uses for actual labor cost when no active
+  // worker has a rate set, reused here to suggest an estimate.
+  const ratedWorkers = workers.filter((w) => w.laborRate != null);
+  const avgLaborRate =
+    ratedWorkers.length > 0
+      ? ratedWorkers.reduce((s, w) => s + (w.laborRate ?? 0), 0) / ratedWorkers.length
+      : DEFAULT_LABOR_RATE;
   const initialCostCodeRows = opportunity?.costCodes.map((cc) => ({
     costCodeId: cc.costCodeId,
     qty: String(cc.estimatedQty),
@@ -225,24 +233,12 @@ export default async function AwardProjectPage({
           </div>
         </div>
 
-        {/* Budget by category */}
-        <div className="space-y-4">
-          <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">Budget by category</h2>
-          <div className="grid grid-cols-3 gap-4">
-            {(["LABOR", "MATERIAL", "EQUIPMENT", "SUBCONTRACTOR", "OTHER"] as const).map((cat) => (
-              <div key={cat}>
-                <label className="block text-sm font-medium mb-1 capitalize">{cat.toLowerCase()} ($)</label>
-                <input name={`budget_${cat}`} type="number" step="any" className="w-full border rounded-md px-3 py-2 text-sm" />
-              </div>
-            ))}
-          </div>
-        </div>
-
         <AwardRepeatableSections
           costCodes={costCodes.map((cc) => ({ id: cc.id, code: cc.code, description: cc.description, unit: cc.unit }))}
           equipmentList={equipment.map((e) => ({ id: e.id, name: e.name, type: e.type }))}
           rates={rates}
           initialCostCodeRows={initialCostCodeRows}
+          avgLaborRate={avgLaborRate}
         />
 
         <button type="submit" className="bg-slate-900 text-white text-sm px-5 py-2.5 rounded-md hover:bg-slate-700">
