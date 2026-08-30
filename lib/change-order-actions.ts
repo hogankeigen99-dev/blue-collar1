@@ -7,6 +7,7 @@ import { requireSession, requireRole } from "@/lib/session";
 import { logAudit } from "@/lib/audit";
 import { dispatchWebhook } from "@/lib/webhooks";
 import { ensureContract } from "@/lib/contract";
+import { demoReturnTo } from "@/lib/demo-redirect";
 
 function str(formData: FormData, key: string): string | undefined {
   const v = formData.get(key);
@@ -123,5 +124,6 @@ export async function updateChangeOrder(formData: FormData) {
 
   revalidatePath(`/jobs/${jobId}/change-orders`);
   revalidatePath(`/jobs/${jobId}`);
-  redirect(`/jobs/${jobId}/change-orders`);
+  revalidatePath("/demo/small-project");
+  redirect(demoReturnTo(formData, `/jobs/${jobId}/change-orders`));
 }

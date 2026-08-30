@@ -7,6 +7,7 @@ import { SESSION_COOKIE, SESSION_COOKIE_OPTIONS, signSession } from "@/lib/auth"
 import { requireSession } from "@/lib/session";
 import { seedDemoCompany } from "@/lib/demo-seed";
 import { DEMO_PERSONAS } from "@/lib/demo-personas";
+import { demoReturnTo } from "@/lib/demo-redirect";
 
 /** True only for the seeded demo company — every demo-only control (persona
  * switcher, walkthrough, reset) gates on this, server-side, not just by
@@ -49,7 +50,10 @@ export async function switchDemoRole(formData: FormData) {
   });
   const store = await cookies();
   store.set(SESSION_COOKIE, token, SESSION_COOKIE_OPTIONS);
-  redirect(persona.landing);
+  // Switching persona from inside the Small Project Cockpit stays on the
+  // cockpit instead of jumping to that persona's usual landing page — the
+  // whole point is running the narrative on one continuous screen.
+  redirect(demoReturnTo(formData, persona.landing));
 }
 
 /** Wipes and re-seeds ONLY the demo company — never touches any other

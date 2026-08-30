@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/session";
 import { parseDateKey, dateKey, addDays } from "@/lib/schedule";
 import { logAudit } from "@/lib/audit";
+import { demoReturnTo } from "@/lib/demo-redirect";
 
 /** Assigns a worker to a job for one day, or a range through `throughDate`. Collects
  * non-blocking warnings (marked-unavailable days, displacing an existing different-job
@@ -132,5 +133,6 @@ export async function assignCrewToJob(formData: FormData) {
   });
 
   revalidatePath(`/jobs/${jobId}`);
-  redirect(`/jobs/${job.id}`);
+  revalidatePath("/demo/small-project");
+  redirect(demoReturnTo(formData, `/jobs/${job.id}`));
 }

@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { requireRole } from "@/lib/session";
 import { generateNextBidNumber } from "@/lib/opportunity-number";
 import { logAudit } from "@/lib/audit";
+import { demoReturnTo } from "@/lib/demo-redirect";
 
 function str(formData: FormData, key: string): string | undefined {
   const v = formData.get(key);
@@ -123,7 +124,8 @@ export async function addOpportunityCostCode(formData: FormData) {
   });
 
   revalidatePath(`/opportunities/${opportunityId}`);
-  redirect(`/opportunities/${opportunityId}`);
+  revalidatePath("/demo/small-project");
+  redirect(demoReturnTo(formData, `/opportunities/${opportunityId}`));
 }
 
 /** Marks an opportunity lost (or a deliberate no-bid) — it stays queryable

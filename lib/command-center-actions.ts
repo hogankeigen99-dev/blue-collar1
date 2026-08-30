@@ -8,6 +8,7 @@ import { generateChecklistForStage } from "@/lib/checklist";
 import { recordBenchmarksForCompletedJob } from "@/lib/productivity-benchmarks";
 import { logAudit } from "@/lib/audit";
 import { dispatchWebhook } from "@/lib/webhooks";
+import { demoReturnTo } from "@/lib/demo-redirect";
 
 function str(formData: FormData, key: string): string | undefined {
   const v = formData.get(key);
@@ -97,7 +98,8 @@ export async function updateJobCommandCenter(formData: FormData) {
   }
 
   revalidatePath(`/jobs/${jobId}`);
-  redirect(`/jobs/${jobId}`);
+  revalidatePath("/demo/small-project");
+  redirect(demoReturnTo(formData, `/jobs/${jobId}`));
 }
 
 export async function setJobBudget(formData: FormData) {

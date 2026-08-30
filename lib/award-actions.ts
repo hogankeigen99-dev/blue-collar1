@@ -8,6 +8,7 @@ import { generateChecklistForStage } from "@/lib/checklist";
 import { generateNextJobNumber } from "@/lib/job-number";
 import { logAudit } from "@/lib/audit";
 import { resolveOrCreateVendorId } from "@/lib/vendors";
+import { demoReturnTo } from "@/lib/demo-redirect";
 import type { CostCategory } from "@prisma/client";
 
 const DAY_MS = 86_400_000;
@@ -268,5 +269,6 @@ export async function awardProject(formData: FormData) {
 
   revalidatePath("/jobs");
   revalidatePath("/");
-  redirect(`/jobs/${job.id}`);
+  revalidatePath("/demo/small-project");
+  redirect(demoReturnTo(formData, `/jobs/${job.id}`));
 }

@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { requireSession } from "@/lib/session";
 import { logAudit } from "@/lib/audit";
 import { dispatchWebhook } from "@/lib/webhooks";
+import { demoReturnTo } from "@/lib/demo-redirect";
 
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024; // 5MB per photo — Postgres-blob storage isn't meant for much more than this
 
@@ -206,7 +207,8 @@ export async function submitDailyReport(formData: FormData) {
   await dispatchWebhook(session.companyId, "DAILY_REPORT_SUBMITTED", { jobId, reportId: report.id, date: dateRaw });
 
   revalidatePath(`/jobs/${jobId}`);
-  redirect(`/jobs/${jobId}`);
+  revalidatePath("/demo/small-project");
+  redirect(demoReturnTo(formData, `/jobs/${jobId}`));
 }
 
 export async function deleteDailyReportPhoto(photoId: string, jobId: string) {

@@ -8,10 +8,9 @@ import { prisma } from "@/lib/prisma";
 import { switchDemoRole, resetDemo, isDemoCompany } from "@/lib/demo-actions";
 import { DEMO_PERSONAS } from "@/lib/demo-personas";
 import { getWalkthroughSteps } from "@/lib/walkthrough";
-import { getSmallProjectFlowSteps } from "@/lib/small-project-flow";
+import { resolveCockpitIdentity } from "@/lib/small-project-cockpit";
 import { ResetDemoButton } from "./reset-demo-button";
 import { WalkthroughLauncher } from "./walkthrough-panel";
-import { SmallProjectLauncher } from "./small-project-panel";
 import "./globals.css";
 
 // Lexend for headings/brand (distinctive, built for reading clarity — a
@@ -47,7 +46,7 @@ export default async function RootLayout({
   const isForeman = session?.role === "FOREMAN";
   const isDemo = session ? await isDemoCompany(session.companyId) : false;
   const walkthroughSteps = isDemo && session ? await getWalkthroughSteps(session.companyId) : null;
-  const smallProjectSteps = isDemo && session ? await getSmallProjectFlowSteps(session.companyId) : null;
+  const cockpitIdentity = isDemo && session ? await resolveCockpitIdentity(session.companyId) : null;
 
   return (
     <html lang="en" className={`${displayFont.variable} ${bodyFont.variable}`}>
@@ -154,7 +153,14 @@ export default async function RootLayout({
                   })}
                 </form>
                 <div className="ml-auto flex items-center gap-2">
-                  {smallProjectSteps && smallProjectSteps.length > 0 && <SmallProjectLauncher steps={smallProjectSteps} />}
+                  {cockpitIdentity && (
+                    <Link
+                      href="/demo/small-project"
+                      className="text-sm text-amber-200 hover:text-white border border-amber-400/50 rounded-md px-2 py-1 font-medium"
+                    >
+                      Small Project Cockpit
+                    </Link>
+                  )}
                   {walkthroughSteps && walkthroughSteps.length > 0 && <WalkthroughLauncher steps={walkthroughSteps} />}
                   <ResetDemoButton action={resetDemo} />
                 </div>
