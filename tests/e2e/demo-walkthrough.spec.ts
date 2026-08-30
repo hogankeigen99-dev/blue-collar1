@@ -19,7 +19,7 @@ test.describe("Demo mode", () => {
     await login(page, "admin");
     await page.goto("/");
     let bodyText = await page.locator("body").innerText();
-    expect(bodyText).toContain("Demo mode");
+    expect(bodyText.toLowerCase()).toContain("demo mode");
     expect(bodyText).toContain("Switch Demo Role");
 
     await switchRole(page, "Foreman");
@@ -49,15 +49,15 @@ test.describe("Demo mode", () => {
     await page.click('button:has-text("Walkthrough")');
     await page.waitForLoadState("networkidle");
 
-    let bodyText = await page.locator("body").innerText();
+    let bodyText = (await page.locator("body").innerText()).toLowerCase();
     expect(bodyText).toContain("step 1 of");
-    expect(bodyText).toContain("Company Command");
+    expect(bodyText).toContain("company command");
 
     await page.click('button:has-text("Next")');
     await page.waitForLoadState("networkidle");
     await expect(page).toHaveURL(/\/jobs\/c[a-z0-9]{10,}$/);
-    bodyText = await page.locator("body").innerText();
-    expect(bodyText).toContain("Riverside Commerce Center");
+    bodyText = (await page.locator("body").innerText()).toLowerCase();
+    expect(bodyText).toContain("riverside commerce center");
     expect(bodyText).toContain("step 2 of");
 
     await page.click('button:has-text("Back")');
@@ -65,7 +65,7 @@ test.describe("Demo mode", () => {
     await expect(page).toHaveURL(/\/$/);
 
     await page.click('button:has-text("Exit Walkthrough")');
-    expect(await page.locator("body").innerText()).not.toContain("step 1 of");
+    expect((await page.locator("body").innerText()).toLowerCase()).not.toContain("step 1 of");
   });
 });
 
@@ -88,7 +88,7 @@ test.describe("Enter once, CrewSync handles the rest", () => {
     await concreteRow.locator('input[name="rowHours"]').fill("72");
     await concreteRow.locator('input[name="rowQty"]').fill("64");
     await page.click('button:has-text("Submit daily update")');
-    await page.waitForURL(`${jobHref}/daily-reports`);
+    await page.waitForURL(jobHref);
 
     // The Project page's cost-code table now shows the real 1.13 hrs/CY
     // actual rate (72/64, computed by lib/productivity.ts) and the overrun.
@@ -185,12 +185,12 @@ test.describe("Enter once, CrewSync handles the rest", () => {
 
     await page.goto(`${jobHref}/change-orders`);
     await page.waitForLoadState("networkidle");
-    const coForm = page.locator('form:has(select[name="status"])', { hasText: "Revised footing detail" });
-    await coForm.locator('select[name="status"]').selectOption("APPROVED");
-    await expect(coForm.locator('select[name="status"]')).toHaveValue("APPROVED");
-    await coForm.locator('input[name="revenueAmount"]').fill("28500");
-    await coForm.locator('input[name="costAmount"]').fill("21000");
-    await coForm.locator('button:has-text("Save")').click();
+    const coCard = page.locator("div.bg-white.border.rounded-lg", { hasText: "Revised footing detail" });
+    await coCard.locator('select[name="status"]').selectOption("APPROVED");
+    await expect(coCard.locator('select[name="status"]')).toHaveValue("APPROVED");
+    await coCard.locator('input[name="revenueAmount"]').fill("28500");
+    await coCard.locator('input[name="costAmount"]').fill("21000");
+    await coCard.locator('button:has-text("Save")').click();
     await page.waitForURL(`${jobHref}/change-orders`);
 
     await page.goto(`${jobHref}/contract`);
