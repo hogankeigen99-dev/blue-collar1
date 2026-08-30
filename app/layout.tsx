@@ -3,6 +3,9 @@ import Link from "next/link";
 import { getSession } from "@/lib/session";
 import { logout } from "@/lib/auth-actions";
 import { canManageEstimates } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+import { DEMO_PERSONAS, switchDemoRole, resetDemo } from "@/lib/demo-actions";
+import { ResetDemoButton } from "./reset-demo-button";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -30,6 +33,9 @@ export default async function RootLayout({
 }) {
   const session = await getSession();
   const isForeman = session?.role === "FOREMAN";
+  const isDemo = session
+    ? Boolean((await prisma.company.findUnique({ where: { id: session.companyId }, select: { isDemo: true } }))?.isDemo)
+    : false;
 
   return (
     <html lang="en">
@@ -109,6 +115,38 @@ export default async function RootLayout({
               )}
             </nav>
           </header>
+          {isDemo && session && (
+            <div className="bg-slate-900 text-white">
+              <div className="max-w-6xl mx-auto px-4 py-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+                <span className="font-semibold tracking-wide text-xs uppercase text-blue-300">Demo mode</span>
+                <form action={switchDemoRole} className="flex flex-wrap items-center gap-1">
+                  <span className="text-slate-400 mr-1">Switch Demo Role:</span>
+                  {DEMO_PERSONAS.map((p) => {
+                    const active = session.email === p.email;
+                    return (
+                      <button
+                        key={p.key}
+                        type="submit"
+                        name="persona"
+                        value={p.key}
+                        disabled={active}
+                        className={
+                          active
+                            ? "px-2 py-1 rounded-md bg-blue-600 text-white font-medium"
+                            : "px-2 py-1 rounded-md text-slate-200 hover:bg-slate-800"
+                        }
+                      >
+                        {p.label}
+                      </button>
+                    );
+                  })}
+                </form>
+                <div className="ml-auto">
+                  <ResetDemoButton action={resetDemo} />
+                </div>
+              </div>
+            </div>
+          )}
           <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-8">
             {children}
           </main>

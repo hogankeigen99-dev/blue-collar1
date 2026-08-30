@@ -234,6 +234,30 @@ export async function seedDemoCompany() {
       role: "PM",
     },
   });
+  // Estimator and Accounting are real ADMIN-role logins, not new Role enum
+  // values — per docs/OPERATING-DATA-MODEL.md and README's "note on scope",
+  // those two are views any ADMIN/PM can reach, not distinct permission
+  // levels. These two accounts exist purely so the demo persona switcher
+  // (lib/demo-actions.ts) has a real login to land on /opportunities and
+  // /cash respectively, same as the other three demo accounts.
+  await prisma.user.create({
+    data: {
+      companyId: company.id,
+      name: "Elena Cruz",
+      email: "estimator@crewsync.dev",
+      passwordHash: hashPassword("estimator1234"),
+      role: "ADMIN",
+    },
+  });
+  await prisma.user.create({
+    data: {
+      companyId: company.id,
+      name: "Carlos Ibarra",
+      email: "accounting@crewsync.dev",
+      passwordHash: hashPassword("accounting123"),
+      role: "ADMIN",
+    },
+  });
 
   const alice = await prisma.worker.create({
     data: { companyId: company.id, name: "Alice Johnson", role: "Electrician", phone: "555-0101" },
@@ -1358,6 +1382,70 @@ export async function seedDemoCompany() {
     });
   }
 
+  // Three more completed concrete-slab jobs, each larger than the two
+  // above (Harbor View, Cedar Court) — commercial-scale pours, not
+  // residential ones. These are the cost code's 3 most-recently-completed
+  // jobs (created after Harbor View/Cedar Court above, so they win the
+  // recordedAt-desc "recent" window in lib/productivity-benchmarks.ts),
+  // and together with the two smaller residential jobs above they set the
+  // company-wide history right where the NorthPoint estimator walkthrough
+  // needs it: estimate 0.85 hrs/CY is meaningfully below both the recent
+  // trend (~1.08) and full company history (~1.04) — an aggressive bid,
+  // not a wild one, so item 8's "keep or apply recommendation" is a real
+  // judgment call rather than an obvious error.
+  const concreteHistoryJobs: { title: string; jobNumber: string; estQty: number; estHours: number; actQty: number; actHours: number }[] = [
+    { title: "Meridian Business Park — Slab Package", jobNumber: `${SEED_YEAR}-017`, estQty: 320, estHours: 288, actQty: 320, actHours: 336 },
+    { title: "Union Depot Warehouse — Slab Package", jobNumber: `${SEED_YEAR}-018`, estQty: 380, estHours: 342, actQty: 380, actHours: 414 },
+    { title: "Crestline Logistics Center — Slab Package", jobNumber: `${SEED_YEAR}-019`, estQty: 340, estHours: 306, actQty: 340, actHours: 374 },
+  ];
+  for (const ch of concreteHistoryJobs) {
+    const historicJob = await prisma.job.create({
+      data: {
+        companyId: company.id,
+        customerId: harborView.id,
+        jobNumber: ch.jobNumber,
+        title: ch.title,
+        address: "Historical record — no site work tracked",
+        stage: "COMPLETE",
+        status: "COMPLETED",
+        projectType: "Commercial concrete package",
+        pmUserId: priya.id,
+        foremanWorkerId: frank.id,
+        contractValue: ch.actQty * 650,
+      },
+    });
+    const historicCostCode = await prisma.jobCostCode.create({
+      data: { jobId: historicJob.id, costCodeId: concreteSlab.id, estimatedQty: ch.estQty, estimatedHours: ch.estHours },
+    });
+    await prisma.productionEntry.create({
+      data: {
+        jobCostCodeId: historicCostCode.id,
+        date: new Date(`${SEED_YEAR - 1}-11-10`),
+        hours: ch.actHours,
+        quantity: ch.actQty,
+        crewSize: 4,
+        enteredById: frank.id,
+      },
+    });
+    const estRate = ch.estHours / ch.estQty;
+    const actRate = ch.actHours / ch.actQty;
+    await prisma.costCodeBenchmark.create({
+      data: {
+        jobId: historicJob.id,
+        costCodeId: concreteSlab.id,
+        projectType: "Commercial concrete package",
+        foremanWorkerId: frank.id,
+        estimatedQty: ch.estQty,
+        estimatedHours: ch.estHours,
+        actualQty: ch.actQty,
+        actualHours: ch.actHours,
+        estimatedRate: estRate,
+        actualRate: actRate,
+        variancePct: (actRate - estRate) / estRate,
+      },
+    });
+  }
+
   // --- Three more simultaneous, currently-active projects (Company
   // Operating Core V1) — each demonstrating one condition cleanly, so the
   // Company Command Center's risk buckets are each populated by a project
@@ -2002,6 +2090,328 @@ export async function seedDemoCompany() {
     },
   });
 
+  // ============================================================
+  // Hero demo project — Riverside Commerce Center. Built specifically for
+  // the live walkthrough: excavation is already progressing on-track (so
+  // the project doesn't look untouched), but the concrete cost code below
+  // has zero production entries yet — the walkthrough's foreman step
+  // enters that day's numbers live, through the real /field form, and the
+  // resulting labor exception, job-cost impact, and PM alert all compute
+  // from that one real submission. The structural steel bid package and
+  // the footing change order are seeded mid-flight (received bids
+  // unselected; a change condition identified but not yet priced) so the
+  // PM/estimator walkthrough steps have a real decision to make live,
+  // rather than just a finished state to look at.
+  // ============================================================
+  const northbank = await prisma.customer.create({
+    data: { companyId: company.id, name: "Northbank Development Group", address: "1200 Riverside Pkwy" },
+  });
+  const riversideCommerce = await prisma.job.create({
+    data: {
+      companyId: company.id,
+      divisionId: fieldOps.id,
+      jobNumber: `${SEED_YEAR}-020`,
+      title: "Riverside Commerce Center",
+      description: "New-construction commercial office/retail building — sitework, foundations, structural steel, and building shell",
+      address: "1200 Riverside Pkwy",
+      status: "IN_PROGRESS",
+      customerId: northbank.id,
+      assignments: { create: [{ workerId: frank.id }, { workerId: miguel.id }, { workerId: carlos.id }] },
+      contractValue: 1800000,
+      pmUserId: priya.id,
+      foremanWorkerId: frank.id,
+      projectType: "Commercial ground-up",
+      targetStartDate: addDays(today, -55),
+      targetEndDate: addDays(today, 95),
+      stage: "ACTIVE",
+      permitNumber: "RVC-2026-0412",
+      permitIssuedDate: addDays(today, -70),
+      permitExpirationDate: addDays(today, 290),
+    },
+  });
+
+  await generateChecklistForStage(prisma, riversideCommerce.id, "PRECON");
+  await generateChecklistForStage(prisma, riversideCommerce.id, "MOBILIZATION");
+  await generateChecklistForStage(prisma, riversideCommerce.id, "ACTIVE");
+  await prisma.jobChecklistItem.updateMany({
+    where: { jobId: riversideCommerce.id, stage: { in: ["PRECON", "MOBILIZATION"] } },
+    data: { done: true, doneAt: addDays(today, -50), doneById: frank.id },
+  });
+
+  await prisma.jobBudget.createMany({
+    data: [
+      { jobId: riversideCommerce.id, category: "LABOR", estimatedAmount: 410000 },
+      { jobId: riversideCommerce.id, category: "MATERIAL", estimatedAmount: 520000 },
+      { jobId: riversideCommerce.id, category: "EQUIPMENT", estimatedAmount: 95000 },
+      { jobId: riversideCommerce.id, category: "SUBCONTRACTOR", estimatedAmount: 610000 },
+    ],
+  });
+
+  await prisma.scheduleAssignment.createMany({
+    // skipDuplicates: frank/miguel/carlos are shared across several other
+    // active jobs in this seed, some scheduled on overlapping today-relative
+    // dates — a handful of already-committed days silently not double
+    // booked here is fine; the point is real crew coverage on this job,
+    // not perfect density every single day.
+    skipDuplicates: true,
+    data: Array.from({ length: 10 }, (_, i) => i).flatMap((offset) => [
+      { workerId: frank.id, jobId: riversideCommerce.id, date: addDays(today, -10 + offset) },
+      { workerId: miguel.id, jobId: riversideCommerce.id, date: addDays(today, -10 + offset) },
+      { workerId: carlos.id, jobId: riversideCommerce.id, date: addDays(today, -10 + offset) },
+    ]),
+  });
+
+  const riversideCrane = await prisma.equipment.create({
+    data: { companyId: company.id, name: "Tower crane", type: "Crane", ownership: "OWNED" },
+  });
+  await prisma.equipmentAssignment.create({
+    data: { equipmentId: riversideCrane.id, jobId: riversideCommerce.id, startDate: addDays(today, -50), endDate: addDays(today, 90) },
+  });
+  const riversidePumpTruck = await prisma.equipment.create({
+    data: { companyId: company.id, name: "Boom pump truck", type: "Pump truck", ownership: "RENTED", dailyRentalCost: 890 },
+  });
+  await prisma.equipmentAssignment.create({
+    data: { equipmentId: riversidePumpTruck.id, jobId: riversideCommerce.id, startDate: addDays(today, -3), endDate: addDays(today, 3) },
+  });
+
+  // Excavation/sitework is already underway and on-track — real background
+  // activity, not the walkthrough's focus.
+  const riversideExcavation = await prisma.jobCostCode.create({
+    data: { jobId: riversideCommerce.id, costCodeId: excavation.id, estimatedQty: 1400, estimatedHours: 980 },
+  });
+  for (const offset of [-10, -9, -8]) {
+    const report = await prisma.dailyReport.create({
+      data: {
+        jobId: riversideCommerce.id,
+        date: addDays(today, offset),
+        crewSize: 3,
+        workCompleted: "Mass excavation and rough grading for building pad",
+        submittedById: frank.id,
+      },
+    });
+    await prisma.productionEntry.create({
+      data: {
+        jobCostCodeId: riversideExcavation.id,
+        dailyReportId: report.id,
+        date: report.date,
+        hours: 68,
+        quantity: 98,
+        crewSize: 3,
+        enteredById: frank.id,
+      },
+    });
+  }
+
+  // Concrete slab — 0.85 hrs/CY estimate, meaningfully below the company's
+  // own recent history (~1.08) seeded above. Zero production entries: this
+  // is the line the live walkthrough bills against (72 hrs / 64 CY ->
+  // 1.125 hrs/CY, computed for real by lib/productivity.ts, not scripted).
+  await prisma.jobCostCode.create({
+    data: { jobId: riversideCommerce.id, costCodeId: concreteSlab.id, estimatedQty: 600, estimatedHours: 510 },
+  });
+
+  await seedContract(riversideCommerce.id, 1800000, { retainagePct: 5, executedDate: addDays(today, -58) });
+  const heroContract = await prisma.contract.findFirstOrThrow({ where: { jobId: riversideCommerce.id }, include: { lines: true } });
+  const riversideWorkInPlaceLine = heroContract.lines.find((l) => l.description === "Contract work in place")!;
+  await seedPayApplication({
+    jobId: riversideCommerce.id,
+    invoiceNumber: "INV-3201",
+    date: addDays(today, -20),
+    status: "SENT",
+    retainagePct: 5,
+    lines: [{ contractLineId: riversideWorkInPlaceLine.id, scheduledValue: riversideWorkInPlaceLine.scheduledValue, priorPct: 0, newPct: 15 }],
+  });
+
+  await prisma.materialRequest.create({
+    data: {
+      jobId: riversideCommerce.id,
+      description: "Ready-mix concrete, 4000 PSI, for building pad slab",
+      quantity: 600,
+      unit: "CY",
+      status: "ORDERED",
+      vendorId: summitConcrete.id,
+      poNumber: "PO-3301",
+      unitCost: 165,
+      totalCost: 99000,
+      expectedDeliveryDate: addDays(today, 2),
+      requestedById: frank.id,
+    },
+  });
+  await prisma.materialRequest.create({
+    data: {
+      jobId: riversideCommerce.id,
+      description: "Rebar for slab and footings",
+      quantity: 45,
+      unit: "TON",
+      status: "RECEIVED",
+      vendorId: metroRebar.id,
+      poNumber: "PO-3288",
+      unitCost: 1150,
+      totalCost: 51750,
+      expectedDeliveryDate: addDays(today, -5),
+      requestedById: frank.id,
+    },
+  });
+
+  // A changed condition, already identified from an earlier daily report —
+  // real automation (lib/daily-report-actions.ts), same as Sunrise Duplex
+  // above. Left un-priced (IDENTIFIED, no revenueAmount/costAmount) so the
+  // PM walkthrough step is pricing and approving a real change order, not
+  // just viewing one.
+  const riversideFootingReport = await prisma.dailyReport.create({
+    data: {
+      jobId: riversideCommerce.id,
+      date: addDays(today, -6),
+      crewSize: 3,
+      workCompleted: "Footing excavation at grid lines D3-D5",
+      blockers: "Geotechnical revised the footing detail at grid D3-D5 — deeper bearing depth than plan set, requires additional concrete",
+      hasChangeCondition: true,
+      changeConditionNotes: "Revised footing detail at grid D3-D5 (deeper bearing per geotech) requires additional concrete beyond the original SOV quantity",
+      submittedById: frank.id,
+    },
+  });
+  await prisma.changeOrder.create({
+    data: {
+      jobId: riversideCommerce.id,
+      title: "Revised footing detail — grid D3-D5",
+      description: "Additional concrete required for deeper footing bearing depth per geotechnical revision at grid lines D3-D5",
+      sourceDailyReportId: riversideFootingReport.id,
+      createdById: frank.id,
+    },
+  });
+
+  // Structural steel bid package — three real responses, not yet awarded.
+  // Vendor B's number is the lowest but excludes something the other two
+  // include, which is exactly the point of the live "select winner" step.
+  const titanSteel = await seedVendor(company.id, "Titan Steel Erectors", { trade: "Structural steel", contactInfo: "555-0930" });
+  const apexStructural = await seedVendor(company.id, "Apex Structural Systems", { trade: "Structural steel", contactInfo: "555-0931" });
+  const ironcladFab = await seedVendor(company.id, "Ironclad Fabrication Co.", { trade: "Structural steel", contactInfo: "555-0932" });
+  const riversideSteelPackage = await prisma.bidPackage.create({
+    data: {
+      jobId: riversideCommerce.id,
+      title: "Structural Steel Package",
+      scope: "Furnish and erect structural steel frame per drawings S-100 through S-410, including anchor bolt setting and steel deck.",
+      dueDate: addDays(today, -4),
+      status: "OPEN",
+    },
+  });
+  await prisma.subBid.create({
+    data: {
+      bidPackageId: riversideSteelPackage.id,
+      vendorId: titanSteel.id,
+      amount: 184000,
+      status: "RECEIVED",
+      scopeNotes: "Full furnish and erect per S-100 through S-410, anchor bolt setting, steel deck, and touch-up paint included",
+      receivedDate: addDays(today, -6),
+    },
+  });
+  await prisma.subBid.create({
+    data: {
+      bidPackageId: riversideSteelPackage.id,
+      vendorId: apexStructural.id,
+      amount: 176000,
+      status: "RECEIVED",
+      scopeNotes: "Furnish and erect steel frame per S-100 through S-410",
+      exclusions: "Excludes steel deck installation and anchor bolt setting — billed as a separate change order if awarded",
+      receivedDate: addDays(today, -5),
+    },
+  });
+  await prisma.subBid.create({
+    data: {
+      bidPackageId: riversideSteelPackage.id,
+      vendorId: ironcladFab.id,
+      amount: 191000,
+      status: "RECEIVED",
+      scopeNotes: "Full furnish and erect per S-100 through S-410, anchor bolt setting, steel deck included, plus a 2-year workmanship warranty",
+      receivedDate: addDays(today, -3),
+    },
+  });
+
+  // ============================================================
+  // NorthPoint Distribution Center — the estimator walkthrough's next bid.
+  // Deliberately left without a cost-code line: the walkthrough adds the
+  // concrete bid line live (the same "+ Add bid line" form every other
+  // opportunity in this seed uses), so the historical-rate panel it
+  // triggers reads real, freshly-seeded company history, not a canned
+  // number. estimatedValue is a placeholder pending that estimate.
+  // ============================================================
+  const northpointLogistics = await prisma.customer.create({
+    data: { companyId: company.id, name: "NorthPoint Logistics Partners", address: "4400 Distribution Way" },
+  });
+  await prisma.opportunity.create({
+    data: {
+      companyId: company.id,
+      bidNumber: `${SEED_YEAR}-B008`,
+      title: "NorthPoint Distribution Center",
+      customerId: northpointLogistics.id,
+      source: "Plan room",
+      projectType: "Commercial ground-up",
+      estimatedValue: 3200000,
+      probability: 55,
+      bidDueDate: addDays(today, 14),
+      assignedToUserId: priya.id,
+      stage: "BIDDING",
+    },
+  });
+
+  // ============================================================
+  // Two more active projects — rounds the portfolio out to 13 concurrently
+  // active jobs (matching a $50-100M self-perform commercial contractor's
+  // typical active load) and covers structural and miscellaneous-metals
+  // project types the rest of the portfolio doesn't otherwise touch.
+  // ============================================================
+  const crestlineOffice = await prisma.customer.create({
+    data: { companyId: company.id, name: "Crestline Office Holdings", address: "900 Crestline Ave" },
+  });
+  const crestlineStructural = await prisma.job.create({
+    data: {
+      companyId: company.id,
+      divisionId: fieldOps.id,
+      jobNumber: `${SEED_YEAR}-021`,
+      title: "Crestline Office Center — Structural Frame",
+      description: "Cast-in-place structural frame for a 4-story office building",
+      address: "900 Crestline Ave",
+      status: "IN_PROGRESS",
+      customerId: crestlineOffice.id,
+      assignments: { create: [{ workerId: diego.id }, { workerId: jamal.id }] },
+      contractValue: 640000,
+      pmUserId: marcus.id,
+      foremanWorkerId: diego.id,
+      projectType: "Commercial structural",
+      targetStartDate: addDays(today, -30),
+      targetEndDate: addDays(today, 45),
+      stage: "ACTIVE",
+    },
+  });
+  await seedContract(crestlineStructural.id, 640000, { retainagePct: 5, executedDate: addDays(today, -32) });
+  await prisma.jobCostCode.create({
+    data: { jobId: crestlineStructural.id, costCodeId: concreteSlab.id, estimatedQty: 210, estimatedHours: 189 },
+  });
+
+  const fairgateApartments = await prisma.customer.create({
+    data: { companyId: company.id, name: "Fairgate Apartments LLC", address: "77 Fairgate Loop" },
+  });
+  const fairgateMetals = await prisma.job.create({
+    data: {
+      companyId: company.id,
+      divisionId: fieldOps.id,
+      jobNumber: `${SEED_YEAR}-022`,
+      title: "Fairgate Apartments — Stair & Rail Package",
+      description: "Prefabricated steel stairs and guardrail installation, 3 buildings",
+      address: "77 Fairgate Loop",
+      status: "IN_PROGRESS",
+      customerId: fairgateApartments.id,
+      assignments: { create: [{ workerId: alice.id }] },
+      contractValue: 38000,
+      pmUserId: priya.id,
+      foremanWorkerId: frank.id,
+      projectType: "Miscellaneous metals",
+      targetStartDate: addDays(today, -3),
+      targetEndDate: addDays(today, 4),
+      stage: "ACTIVE",
+    },
+  });
+  await seedContract(fairgateMetals.id, 38000, { retainagePct: 5, executedDate: addDays(today, -5) });
 }
 
 /** A second, unrelated company — proves cross-tenant isolation works, not
